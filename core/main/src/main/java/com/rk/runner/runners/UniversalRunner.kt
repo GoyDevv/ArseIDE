@@ -15,6 +15,7 @@ import com.rk.icons.Icon
 import com.rk.resources.drawables
 import com.rk.resources.getString
 import com.rk.resources.strings
+import com.rk.runner.ProjectRunner
 import com.rk.runner.Runner
 import com.rk.terminal.setupAssetFile
 import com.rk.utils.dialogRes
@@ -62,16 +63,18 @@ object UniversalRunner : Runner() {
     }
 
     suspend fun launchUniversalRunner(activity: Activity, fileObject: FileObject) {
+        val sandboxFile = ProjectRunner.toSandboxPath(fileObject.getAbsolutePath())
+        val sandboxDir = fileObject.getParentFile()?.getAbsolutePath()?.let { ProjectRunner.toSandboxPath(it) } ?: "/"
         launchTerminal(
             activity = activity,
             terminalCommand =
                 TerminalCommand(
                     sandbox = true,
                     exe = "/bin/bash",
-                    args = arrayOf(localBinDir().child("universal_runner").absolutePath, fileObject.getAbsolutePath()),
+                    args = arrayOf(localBinDir().child("universal_runner").absolutePath, sandboxFile),
                     id = strings.universal_runner.getString(),
                     terminatePreviousSession = true,
-                    workingDir = fileObject.getParentFile()?.getAbsolutePath() ?: "/",
+                    workingDir = sandboxDir,
                 ),
         )
     }

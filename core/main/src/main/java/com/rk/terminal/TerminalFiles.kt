@@ -31,7 +31,7 @@ fun setupTerminalFiles() {
         }
     }
 
-    val internalFiles = listOf("init", "sandbox", "setup", "utils")
+    val internalFiles = listOf("init", "sandbox", "setup", "utils", "project_runner", "universal_runner", "auto_setup")
     internalFiles.forEach { setupAssetFile(it) }
 
     application!!.assets.list("terminal/lsp")?.forEach { setupLspFile(it.removeSuffix(".sh")) }
@@ -41,10 +41,12 @@ fun setupLspFile(fileName: String) = setupAssetFile("lsp/$fileName")
 
 fun setupAssetFile(fileName: String) {
     with(localBinDir().child(fileName)) {
-        parentFile?.mkdir()
-        if (exists().not()) {
+        parentFile?.mkdirs()
+        val assetText = application!!.assets.open("terminal/$fileName.sh").bufferedReader().use { it.readText() }
+        if (!exists() || runCatching { readText() }.getOrNull() != assetText) {
             createFileIfNot()
-            writeText(application!!.assets.open("terminal/$fileName.sh").bufferedReader().use { it.readText() })
+            writeText(assetText)
         }
+        runCatching { setExecutable(true, false) }
     }
 }

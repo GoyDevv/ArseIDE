@@ -4,16 +4,21 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -22,6 +27,8 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
@@ -32,40 +39,40 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Branded IDE launch screen on a dark backdrop: the "XED PRO" wordmark and a "by GoyDevv" tagline
- * fade/scale in, a loading progress bar fills while the app loads behind us, then the whole screen
- * gently zooms and fades away to reveal the ready UI.
- *
- * The progress bar is gated on [awaitAppIdle]: it can only complete once the app's heavy first
- * composition is done and the main thread is idle again — so the whole animation plays at a steady
- * 60fps with no jank, and the reveal is instant.
+ * Branded Liquid-Glass IDE launch screen: the "XED PRO" wordmark and "by GoyDevv" badge fade/scale in
+ * inside a subtle glassmorphic card over an ambient deep-indigo gradient backdrop, a loading progress
+ * bar fills while the app loads behind us, then the whole screen gently zooms and fades away at 60fps.
  */
 @Composable
 fun SplashScreen(onFinish: () -> Unit) {
-    val intro = remember { Animatable(0f) } // fade/scale-in of the wordmark block
-    val progress = remember { Animatable(0f) } // loading progress 0..1
-    val zoom = remember { Animatable(1f) } // final subtle zoom
-    val exit = remember { Animatable(1f) } // whole-screen fade-out
+    val intro = remember { Animatable(0f) }
+    val progress = remember { Animatable(0f) }
+    val zoom = remember { Animatable(1f) }
+    val exit = remember { Animatable(1f) }
 
-    val bg = Color(0xFF0D1117)
-    val fg = Color(0xFFE6EDF3)
-    val muted = Color(0xFF8B949E)
-    val track = Color(0xFF21262D)
+    val bgTop = Color(0xFF0A0D14)
+    val bgBottom = Color(0xFF101624)
+    val accentCyan = Color(0xFF66E3F4)
+    val accentBlue = Color(0xFFADC6FF)
+    val fg = Color(0xFFEAF0FA)
+    val muted = Color(0xFF94A0B8)
+    val track = Color(0xFF1E2638)
 
     LaunchedEffect(Unit) {
-        launch { intro.animateTo(1f, tween(durationMillis = 560, easing = FastOutSlowInEasing)) }
-        // Creep the bar to ~90% while the app loads; hold there until the main thread is idle.
+        launch { intro.animateTo(1f, tween(durationMillis = 520, easing = FastOutSlowInEasing)) }
         coroutineScope {
-            val creep = launch { runCatching { progress.animateTo(0.9f, tween(durationMillis = 2600, easing = LinearEasing)) } }
+            val creep =
+                launch {
+                    runCatching { progress.animateTo(0.9f, tween(durationMillis = 2400, easing = LinearEasing)) }
+                }
             awaitAppIdle()
             creep.cancel()
         }
-        // App is ready → complete the bar, brief hold, then hand off.
-        progress.animateTo(1f, tween(durationMillis = 240, easing = FastOutSlowInEasing))
-        delay(240)
+        progress.animateTo(1f, tween(durationMillis = 220, easing = FastOutSlowInEasing))
+        delay(200)
         coroutineScope {
-            launch { zoom.animateTo(1.08f, tween(durationMillis = 460, easing = FastOutSlowInEasing)) }
-            exit.animateTo(0f, tween(durationMillis = 460, easing = FastOutSlowInEasing))
+            launch { zoom.animateTo(1.06f, tween(durationMillis = 420, easing = FastOutSlowInEasing)) }
+            exit.animateTo(0f, tween(durationMillis = 420, easing = FastOutSlowInEasing))
         }
         onFinish()
     }
@@ -79,54 +86,105 @@ fun SplashScreen(onFinish: () -> Unit) {
         }
 
     Box(
-        modifier = Modifier.fillMaxSize().graphicsLayer { alpha = exit.value }.background(bg),
+        modifier =
+            Modifier.fillMaxSize()
+                .graphicsLayer { alpha = exit.value }
+                .background(
+                    brush =
+                        Brush.radialGradient(
+                            colors = listOf(Color(0xFF18243E), bgBottom, bgTop),
+                            center = Offset(500f, 700f),
+                            radius = 1200f,
+                        )
+                ),
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
+        // Ambient glow orb behind the glass card
+        Box(
             modifier =
-                Modifier.graphicsLayer {
-                    val a = intro.value
-                    alpha = a
-                    val s = (0.92f + 0.08f * a) * zoom.value
-                    scaleX = s
-                    scaleY = s
-                    translationY = (1f - a) * 20.dp.toPx()
-                },
+                Modifier.size(280.dp)
+                    .clip(CircleShape)
+                    .background(
+                        brush =
+                            Brush.radialGradient(
+                                colors = listOf(accentBlue.copy(alpha = 0.14f), Color.Transparent),
+                            )
+                    )
+        )
+
+        Surface(
+            shape = RoundedCornerShape(32.dp),
+            color = Color(0xFF151C2C).copy(alpha = 0.72f),
+            border =
+                BorderStroke(
+                    width = 1.dp,
+                    brush =
+                        Brush.linearGradient(
+                            colors =
+                                listOf(
+                                    Color.White.copy(alpha = 0.25f),
+                                    accentCyan.copy(alpha = 0.18f),
+                                    Color.White.copy(alpha = 0.05f),
+                                )
+                        ),
+                ),
+            shadowElevation = 20.dp,
+            modifier =
+                Modifier.padding(horizontal = 32.dp)
+                    .graphicsLayer {
+                        val a = intro.value
+                        alpha = a
+                        val s = (0.92f + 0.08f * a) * zoom.value
+                        scaleX = s
+                        scaleY = s
+                        translationY = (1f - a) * 20.dp.toPx()
+                    },
         ) {
-            Text(
-                text = "XED PRO",
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Bold,
-                fontSize = 46.sp,
-                letterSpacing = 6.sp,
-                color = fg,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "by GoyDevv",
-                style = MaterialTheme.typography.labelLarge,
-                letterSpacing = 3.sp,
-                color = muted,
-            )
-            Spacer(Modifier.height(40.dp))
-            LinearProgressIndicator(
-                progress = { progress.value },
-                modifier = Modifier.width(220.dp).height(6.dp).clip(RoundedCornerShape(3.dp)),
-                color = fg,
-                trackColor = track,
-            )
-            Spacer(Modifier.height(14.dp))
-            Text(text = status, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp, color = muted)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(horizontal = 40.dp, vertical = 36.dp),
+            ) {
+                Text(
+                    text = "XED PRO",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 44.sp,
+                    letterSpacing = 6.sp,
+                    color = fg,
+                )
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = accentBlue.copy(alpha = 0.14f),
+                    border = BorderStroke(0.8.dp, accentBlue.copy(alpha = 0.32f)),
+                ) {
+                    Text(
+                        text = "by GoyDevv",
+                        style = MaterialTheme.typography.labelMedium,
+                        letterSpacing = 2.5.sp,
+                        color = accentBlue,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                    )
+                }
+                Spacer(Modifier.height(34.dp))
+                LinearProgressIndicator(
+                    progress = { progress.value },
+                    modifier = Modifier.width(220.dp).height(6.dp).clip(RoundedCornerShape(3.dp)),
+                    color = accentCyan,
+                    trackColor = track,
+                )
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    text = status,
+                    style = MaterialTheme.typography.labelSmall,
+                    letterSpacing = 1.sp,
+                    color = muted,
+                )
+            }
         }
     }
 }
 
-/**
- * Suspends until the app behind the splash has finished its heavy first composition — detected by a
- * run of consecutive frames that render quickly (i.e. the main thread is idle again). Capped by
- * [maxFrames] so we always proceed even on very slow starts.
- */
 private suspend fun awaitAppIdle(maxFrames: Int = 120, requiredSmooth: Int = 3, thresholdMs: Long = 22) {
     var lastFrame = 0L
     var smooth = 0

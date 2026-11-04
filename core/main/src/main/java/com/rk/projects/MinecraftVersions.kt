@@ -7,29 +7,28 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
- * Provides real Minecraft release versions.
+ * Provides real Minecraft release versions supported by Fabric and Forge.
  *
  * Primary source is Mojang's official version manifest. If the network is unavailable we fall back
- * to a bundled list of recent releases so the picker is never empty (and never shows fake data).
+ * to a bundled list of recent releases so the picker is never empty.
  */
 object MinecraftVersions {
 
     private const val MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
 
-    /** Recent releases, newest first. Kept current as a sane offline default. */
+    /** Recent releases with published Fabric & Forge toolchains, newest first. */
     val FALLBACK: List<String> =
         listOf(
-            "26.2",
-            "26.1",
-            "1.21.8",
-            "1.21.5",
             "1.21.4",
+            "1.21.3",
             "1.21.1",
             "1.21",
             "1.20.6",
             "1.20.4",
+            "1.20.2",
             "1.20.1",
             "1.19.4",
+            "1.19.2",
             "1.18.2",
             "1.16.5",
             "1.12.2",

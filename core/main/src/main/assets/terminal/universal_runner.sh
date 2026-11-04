@@ -13,19 +13,18 @@ run_code() {
     chmod +x "$1"
     if [ -x "$1" ]; then
         "$1"
-        rm "$1"
+        rm -f "$1"
     else
         mv "$1" /tmp/a.out
         chmod +x /tmp/a.out
         /tmp/a.out
-        rm /tmp/a.out
+        rm -f /tmp/a.out
     fi
 }
 
 install_package() {
   local packages="$1"
 
-  # If curl is requested, ensure ca-certificates is also installed
   if echo "$packages" | grep -qw curl; then
     if ! echo "$packages" | grep -qw ca-certificates; then
       packages="$packages ca-certificates"
@@ -33,6 +32,7 @@ install_package() {
   fi
 
   info "Installing $packages..."
+  export DEBIAN_FRONTEND=noninteractive
   apt update -y && apt upgrade -y
   apt install -y $packages
 }
@@ -49,7 +49,6 @@ install_rust() {
   install_package "curl"
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
   source "$HOME/.cargo/env"
-  # Add to PATH for current session
   export PATH="$HOME/.cargo/bin:$PATH"
 }
 
@@ -120,14 +119,12 @@ case "$file" in
 
     filename="$(basename "$file" .ts)"
 
-    # Compile with correct working directory
     tsc "$file" --outDir "$tempdir"
 
     node "$tempdir/$filename.js"
 
     rm -rf "$tempdir"
     ;;
-
 
   *.java)
     if ! command_exists java; then
@@ -136,7 +133,6 @@ case "$file" in
 
     java "$file"
     ;;
-
 
   *.kt)
     if ! command_exists java; then
@@ -147,16 +143,16 @@ case "$file" in
       info "Installing Kotlin..."
       install_kotlin
     fi
-    kotlinc "$file" -include-runtime -d temp.jar && java -jar temp.jar
-    rm -f temp.jar
+    kotlinc "$file" -include-runtime -d /tmp/temp.jar && java -jar /tmp/temp.jar
+    rm -f /tmp/temp.jar
     ;;
 
   *.rs)
     if ! command_exists rustc; then
       install_rust
     fi
-    rustc "$file" -o temp.out
-    run_code ./temp.out
+    rustc "$file" -o /tmp/temp.out
+    run_code /tmp/temp.out
     ;;
 
   *.rb)
@@ -177,35 +173,35 @@ case "$file" in
     if ! command_exists gcc; then
       install_package "build-essential"
     fi
-    gcc "$file" -o temp.out
-    run_code ./temp.out
+    gcc "$file" -o /tmp/temp.out
+    run_code /tmp/temp.out
     ;;
 
   *.cpp|*.cc|*.cxx)
     if ! command_exists g++; then
       install_package "build-essential"
     fi
-    g++ "$file" -o temp.out
-    run_code ./temp.out
+    g++ "$file" -o /tmp/temp.out
+    run_code /tmp/temp.out
     ;;
 
   *.cs)
     if ! command_exists dotnet; then
       install_dotnet
     fi
-    # Create a temporary project
-    mkdir -p temp_cs_project
-    cd temp_cs_project
+    rm -rf /tmp/temp_cs_project
+    mkdir -p /tmp/temp_cs_project
+    cp "$file" /tmp/temp_cs_project/Program.cs
+    cd /tmp/temp_cs_project
     export DOTNET_GCHeapHardLimit=1C0000000
     dotnet new console --force
-    cp "../$file" Program.cs
+    cp "$file" /tmp/temp_cs_project/Program.cs
     dotnet run
-    cd ..
-    rm -rf temp_cs_project
+    rm -rf /tmp/temp_cs_project
     ;;
 
   *.sh|*.bash)
-    chmod +x "$file"
+    chmod +x "$file" 2>/dev/null || true
     bash "$file"
     ;;
 
@@ -213,7 +209,7 @@ case "$file" in
     if ! command_exists zsh; then
       install_package "zsh"
     fi
-    chmod +x "$file"
+    chmod +x "$file" 2>/dev/null || true
     zsh "$file"
     ;;
 
@@ -221,7 +217,7 @@ case "$file" in
     if ! command_exists fish; then
       install_package "fish"
     fi
-    chmod +x "$file"
+    chmod +x "$file" 2>/dev/null || true
     fish "$file"
     ;;
 
@@ -250,16 +246,16 @@ case "$file" in
     if ! command_exists gfortran; then
       install_package "gfortran"
     fi
-    gfortran "$file" -o temp.out
-    run_code ./temp.out
+    gfortran "$file" -o /tmp/temp.out
+    run_code /tmp/temp.out
     ;;
 
   *.pas)
     if ! command_exists fpc; then
       install_package "fpc"
     fi
-    fpc "$file" && "./$(basename "$file" .pas)"
-    rm -f "$(basename "$file" .pas)" *.o
+    fpc "$file" -FE/tmp && "/tmp/$(basename "$file" .pas)"
+    rm -f "/tmp/$(basename "$file" .pas)" /tmp/*.o
     ;;
 
   *.tcl)

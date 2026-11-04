@@ -1,10 +1,16 @@
 package com.rk.tabs.editor
 
-import androidx.compose.foundation.background
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -12,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -19,6 +26,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
@@ -26,6 +35,7 @@ import com.rk.activities.main.MainActivity
 import com.rk.commands.ActionContext
 import com.rk.commands.CommandProvider
 import com.rk.commands.ToggleableCommand
+import com.rk.components.GlassSurface
 import com.rk.icons.Icon
 import com.rk.icons.XedIcon
 import com.rk.settings.Settings
@@ -50,7 +60,7 @@ fun ExtraKeys(editorTab: EditorTab) {
                 icon = if (command.preferText) Icon.TextIcon(command.getLabel()) else command.getIcon(),
                 isOn = command is ToggleableCommand && command.isOn(),
                 enabled = command.isEnabled() && command.isSupported(),
-                onClick = { command.performCommand(ActionContext(MainActivity.instance!!)) },
+                onClick = { MainActivity.instance?.let { command.performCommand(ActionContext(it)) } },
             )
         }
 
@@ -81,19 +91,26 @@ fun ExtraKeys(editorTab: EditorTab) {
 
     val extraKeys = commandExtraKeys + symbolExtraKeys
 
-    Column(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (Settings.split_extra_keys) {
-            KeyRow(commandExtraKeys)
-            KeyRow(symbolExtraKeys)
-        } else {
-            KeyRow(extraKeys)
+    GlassSurface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(16.dp),
+        shadowElevation = 4.dp,
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (Settings.split_extra_keys) {
+                KeyRow(commandExtraKeys)
+                KeyRow(symbolExtraKeys)
+            } else {
+                KeyRow(extraKeys)
+            }
         }
     }
 }
 
 @Composable
 private fun KeyRow(extraKeys: List<ExtraKey>) {
-    LazyRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         items(extraKeys, key = { it.label }) { KeyButton(it) }
     }
 }
@@ -101,30 +118,55 @@ private fun KeyRow(extraKeys: List<ExtraKey>) {
 @Composable
 private fun KeyButton(key: ExtraKey) {
     val hapticFeedback = LocalHapticFeedback.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by
+        animateFloatAsState(
+            targetValue = if (isPressed && key.enabled) 0.90f else 1f,
+            animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMedium),
+            label = "keyButtonScale",
+        )
 
     val keyContentColor =
         when {
             key.isOn && key.enabled -> MaterialTheme.colorScheme.primary
             key.isOn -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
             key.enabled -> MaterialTheme.colorScheme.onSurface
-            else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+            else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f)
         }
 
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier =
-            Modifier.size(32.dp, 32.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .then(
-                    if (Settings.extra_keys_bg) {
-                        Modifier.background(
-                            MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (key.enabled) 1f else 0.5f)
-                        )
-                    } else {
-                        Modifier
-                    }
+    val keyBgColor =
+        if (Settings.extra_keys_bg) {
+            if (key.isOn) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
+            else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = if (key.enabled) 0.85f else 0.4f)
+        } else {
+            Color.Transparent
+        }
+
+    Surface(
+        color = keyBgColor,
+        shape = RoundedCornerShape(10.dp),
+        border =
+            if (Settings.extra_keys_bg) {
+                BorderStroke(
+                    width = 0.8.dp,
+                    color =
+                        if (key.isOn) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f),
                 )
+            } else {
+                null
+            },
+        modifier =
+            Modifier.size(36.dp, 34.dp)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
+                .clip(RoundedCornerShape(10.dp))
                 .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
                     enabled = key.enabled,
                     onClick = {
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -132,11 +174,13 @@ private fun KeyButton(key: ExtraKey) {
                     },
                 ),
     ) {
-        XedIcon(
-            icon = key.icon,
-            modifier = Modifier.size(16.dp),
-            contentDescription = key.label,
-            tint = keyContentColor,
-        )
+        Box(contentAlignment = Alignment.Center) {
+            XedIcon(
+                icon = key.icon,
+                modifier = Modifier.size(16.dp),
+                contentDescription = key.label,
+                tint = keyContentColor,
+            )
+        }
     }
 }

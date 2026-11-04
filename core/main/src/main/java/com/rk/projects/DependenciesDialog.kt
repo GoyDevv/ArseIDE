@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -41,6 +43,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -50,7 +53,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
-import androidx.compose.ui.platform.LocalContext
 import com.rk.exec.ShellUtils
 import com.rk.exec.isTerminalInstalled
 import com.rk.resources.drawables
@@ -60,7 +62,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class DepState { AVAILABLE, INSTALLED }
+private enum class DepState {
+    AVAILABLE,
+    INSTALLED,
+}
 
 private data class Dep(
     val name: String,
@@ -74,16 +79,15 @@ private class DepRow(val dep: Dep) {
     var state by mutableStateOf(DepState.AVAILABLE)
 }
 
-/** A pending install confirmation/warning. */
 private class DepConfirm(val title: String, val message: String, val run: () -> Unit)
 
-private val ANDROID_SDK_INSTALL =
-    "set -e; " +
+internal val ANDROID_SDK_INSTALL =
+    "set -e; export DEBIAN_FRONTEND=noninteractive; " +
         "export ANDROID_HOME=\"${'$'}HOME/android-sdk\"; " +
         "mkdir -p \"${'$'}ANDROID_HOME/cmdline-tools\"; " +
-        "apt-get update -y; apt-get install -y wget unzip openjdk-17-jdk; " +
+        "apt-get update -y; apt-get install -y wget curl unzip aapt openjdk-17-jdk openjdk-21-jdk; " +
         "cd \"${'$'}ANDROID_HOME/cmdline-tools\"; " +
-        "wget https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O clt.zip; " +
+        "wget -q --show-progress https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O clt.zip; " +
         "unzip -q -o clt.zip; rm -f clt.zip; rm -rf latest; mv cmdline-tools latest; " +
         "SDKM=\"${'$'}ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\"; " +
         "yes | \"${'$'}SDKM\" --sdk_root=\"${'$'}ANDROID_HOME\" --licenses >/dev/null 2>&1 || true; " +
@@ -91,8 +95,19 @@ private val ANDROID_SDK_INSTALL =
         "[ -z \"${'$'}PLAT\" ] && PLAT='platforms;android-35'; " +
         "BT=${'$'}(\"${'$'}SDKM\" --sdk_root=\"${'$'}ANDROID_HOME\" --list 2>/dev/null | grep -oE 'build-tools;[0-9.]+' | sort -V | tail -1); " +
         "[ -z \"${'$'}BT\" ] && BT='build-tools;35.0.0'; " +
-        "echo \"Installing platform-tools, android-34, build-tools 34, ${'$'}PLAT, ${'$'}BT\"; " +
-        "\"${'$'}SDKM\" --sdk_root=\"${'$'}ANDROID_HOME\" \"platform-tools\" \"platforms;android-34\" \"build-tools;34.0.0\" \"${'$'}PLAT\" \"${'$'}BT\""
+        "echo \"Installing platform-tools, android-34, android-35, build-tools 34/35, ${'$'}PLAT, ${'$'}BT\"; " +
+        "\"${'$'}SDKM\" --sdk_root=\"${'$'}ANDROID_HOME\" \"platform-tools\" \"platforms;android-34\" \"platforms;android-35\" \"build-tools;34.0.0\" \"build-tools;35.0.0\" \"${'$'}PLAT\" \"${'$'}BT\"; " +
+        "ARCH=${'$'}(uname -m); " +
+        "if [ \"${'$'}ARCH\" != \"x86_64\" ] && command -v aapt2 >/dev/null 2>&1; then " +
+        "  AAPT2_BIN=${'$'}(command -v aapt2); " +
+        "  mkdir -p \"${'$'}HOME/.gradle\"; " +
+        "  grep -q '^android\\.aapt2FromMavenOverride=' \"${'$'}HOME/.gradle/gradle.properties\" 2>/dev/null " +
+        "    && sed -i \"s|^android\\.aapt2FromMavenOverride=.*|android.aapt2FromMavenOverride=${'$'}AAPT2_BIN|\" \"${'$'}HOME/.gradle/gradle.properties\" " +
+        "    || printf '\\nandroid.aapt2FromMavenOverride=%s\\n' \"${'$'}AAPT2_BIN\" >> \"${'$'}HOME/.gradle/gradle.properties\"; " +
+        "  for bt in \"${'$'}ANDROID_HOME/build-tools\"/*/; do " +
+        "    [ -d \"${'$'}bt\" ] && ln -sf \"${'$'}AAPT2_BIN\" \"${'$'}{bt}aapt2\" 2>/dev/null || true; " +
+        "  done; " +
+        "fi"
 
 internal const val NDK_LATEST = "Latest"
 
@@ -126,26 +141,54 @@ private val CMAKE_INSTALL =
         "\"${'$'}SDKM\" --sdk_root=\"${'$'}ANDROID_HOME\" \"${'$'}CM\""
 
 private fun catalogFor(type: DetectedProjectType): List<Dep> {
-    fun apt(pkgs: String) = "apt-get update -y && apt-get install -y $pkgs"
-    fun aptRm(pkgs: String) = "apt-get remove -y $pkgs; apt-get autoremove -y"
+    fun apt(pkgs: String) = "export DEBIAN_FRONTEND=noninteractive; apt-get update -y && apt-get install -y $pkgs"
+    fun aptRm(pkgs: String) = "export DEBIAN_FRONTEND=noninteractive; apt-get remove -y $pkgs; apt-get autoremove -y"
     val jdk21 =
-        Dep("JDK 21", "openjdk-21-jdk", "ls -d /usr/lib/jvm/java-21* >/dev/null 2>&1", apt("openjdk-21-jdk"), aptRm("openjdk-21-jdk"))
+        Dep(
+            "JDK 21",
+            "openjdk-21-jdk",
+            "ls -d /usr/lib/jvm/java-21* >/dev/null 2>&1",
+            apt("openjdk-21-jdk"),
+            aptRm("openjdk-21-jdk"),
+        )
     val jdk17 =
-        Dep("JDK 17", "openjdk-17-jdk", "ls -d /usr/lib/jvm/java-17* >/dev/null 2>&1", apt("openjdk-17-jdk"), aptRm("openjdk-17-jdk"))
+        Dep(
+            "JDK 17",
+            "openjdk-17-jdk",
+            "ls -d /usr/lib/jvm/java-17* >/dev/null 2>&1",
+            apt("openjdk-17-jdk"),
+            aptRm("openjdk-17-jdk"),
+        )
+    val jdk11 =
+        Dep(
+            "JDK 11",
+            "openjdk-11-jdk",
+            "ls -d /usr/lib/jvm/java-11* >/dev/null 2>&1",
+            apt("openjdk-11-jdk"),
+            aptRm("openjdk-11-jdk"),
+        )
+    val jdk8 =
+        Dep(
+            "JDK 8",
+            "openjdk-8-jdk",
+            "ls -d /usr/lib/jvm/java-8* >/dev/null 2>&1",
+            apt("openjdk-8-jdk"),
+            aptRm("openjdk-8-jdk"),
+        )
     val git = Dep("Git", "git", "command -v git >/dev/null 2>&1", apt("git"), aptRm("git"))
     return when (type) {
         DetectedProjectType.FABRIC_MOD,
         DetectedProjectType.FORGE_MOD,
-        DetectedProjectType.GRADLE -> listOf(jdk21, jdk17, git)
+        DetectedProjectType.GRADLE -> listOf(jdk21, jdk17, jdk11, jdk8, git)
         DetectedProjectType.ANDROID ->
             listOf(
-                jdk17,
                 jdk21,
+                jdk17,
                 git,
                 Dep(
                     "Android SDK",
-                    "cmdline-tools · platform-tools · platform + build-tools (large)",
-                    "test -x \"${'$'}HOME/android-sdk/platform-tools/adb\"",
+                    "cmdline-tools · platform-tools · platforms 34/35 + build-tools (with ARM64 aapt2)",
+                    "test -x \"${'$'}HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager\" && ls -d \"${'$'}HOME/android-sdk/platforms/android-\"* >/dev/null 2>&1",
                     ANDROID_SDK_INSTALL,
                     "rm -rf \"${'$'}HOME/android-sdk\"",
                 ),
@@ -159,26 +202,42 @@ private fun catalogFor(type: DetectedProjectType): List<Dep> {
                 Dep(
                     "CMake",
                     "native C/C++ builds",
-                    "ls \"${'$'}HOME/android-sdk/cmake\"/*/bin/cmake >/dev/null 2>&1",
+                    "ls \"${'$'}HOME/android-sdk/cmake\"/*/bin/cmake >/dev/null 2>&1 || command -v cmake >/dev/null 2>&1",
                     CMAKE_INSTALL,
                     "rm -rf \"${'$'}HOME/android-sdk/cmake\"",
                 ),
             )
         DetectedProjectType.NODE ->
-            listOf(Dep("Node.js & npm", "nodejs npm", "command -v node >/dev/null 2>&1", apt("nodejs npm"), aptRm("nodejs npm")))
+            listOf(
+                Dep(
+                    "Node.js & npm",
+                    "nodejs npm",
+                    "command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1",
+                    apt("nodejs npm"),
+                    aptRm("nodejs npm"),
+                )
+            )
         DetectedProjectType.PYTHON ->
             listOf(
                 Dep(
                     "Python 3",
                     "python3 python3-pip python3-venv",
-                    "command -v python3 >/dev/null 2>&1",
+                    "command -v python3 >/dev/null 2>&1 && python3 -m pip --version >/dev/null 2>&1",
                     apt("python3 python3-pip python3-venv"),
                     aptRm("python3-pip python3-venv"),
                 ),
                 Dep("pipx", "pipx", "command -v pipx >/dev/null 2>&1", apt("pipx"), aptRm("pipx")),
             )
         DetectedProjectType.RUST ->
-            listOf(Dep("Rust (cargo)", "rustc cargo", "command -v cargo >/dev/null 2>&1", apt("rustc cargo"), aptRm("rustc cargo")))
+            listOf(
+                Dep(
+                    "Rust (cargo)",
+                    "rustc cargo",
+                    "command -v cargo >/dev/null 2>&1",
+                    apt("rustc cargo"),
+                    aptRm("rustc cargo"),
+                )
+            )
         DetectedProjectType.GO ->
             listOf(Dep("Go", "golang-go", "command -v go >/dev/null 2>&1", apt("golang-go"), aptRm("golang-go")))
         DetectedProjectType.WEB,
@@ -187,9 +246,7 @@ private fun catalogFor(type: DetectedProjectType): List<Dep> {
 }
 
 /**
- * Full-screen Dependency Manager. Detects the project type, checks (in the sandbox) exactly what is
- * already installed vs what can be installed, offers per-version NDK installs, and streams a live
- * log with overall progress while installing (via the background [DependencyInstallService]).
+ * Full-screen Dependency Manager.
  */
 @Composable
 fun DependenciesView(projectRoot: File, onDismiss: () -> Unit) {
@@ -220,14 +277,22 @@ fun DependenciesView(projectRoot: File, onDismiss: () -> Unit) {
             rows.forEach { row ->
                 val installed =
                     withContext(Dispatchers.IO) {
-                        ShellUtils.runUbuntu(command = arrayOf("bash", "-lc", row.dep.detectCmd), timeoutSeconds = 15L).exitCode == 0
+                        ShellUtils.runUbuntu(
+                                command = arrayOf("bash", "-lc", row.dep.detectCmd),
+                                timeoutSeconds = 15L,
+                            )
+                            .exitCode == 0
                     }
                 row.state = if (installed) DepState.INSTALLED else DepState.AVAILABLE
             }
             if (type == DetectedProjectType.ANDROID) {
                 val out =
                     withContext(Dispatchers.IO) {
-                        ShellUtils.runUbuntu(command = arrayOf("bash", "-lc", "ls \"${'$'}HOME/android-sdk/ndk\" 2>/dev/null"), timeoutSeconds = 15L).output
+                        ShellUtils.runUbuntu(
+                                command = arrayOf("bash", "-lc", "ls \"${'$'}HOME/android-sdk/ndk\" 2>/dev/null"),
+                                timeoutSeconds = 15L,
+                            )
+                            .output
                     }
                 installedNdk.clear()
                 installedNdk.addAll(out.split("\n").map { it.trim() }.filter { it.isNotEmpty() })
@@ -236,7 +301,9 @@ fun DependenciesView(projectRoot: File, onDismiss: () -> Unit) {
         detecting = false
     }
 
-    LaunchedEffect(projectRoot.absolutePath, refreshKey) { runCheck() }
+    LaunchedEffect(projectRoot.absolutePath, refreshKey, busy) {
+        if (!busy) runCheck()
+    }
 
     val notificationLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -244,7 +311,8 @@ fun DependenciesView(projectRoot: File, onDismiss: () -> Unit) {
     fun ensureNotificationsThen(action: () -> Unit) {
         if (
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                    PackageManager.PERMISSION_GRANTED
         ) {
             notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -261,26 +329,36 @@ fun DependenciesView(projectRoot: File, onDismiss: () -> Unit) {
     fun installSelected() {
         val sel = selectableRows().filter { selected[it.dep.name] == true }
         if (sel.isNotEmpty()) {
-            confirm = DepConfirm(
-                "Install dependencies?",
-                "Install ${sel.size} item(s): ${sel.joinToString(", ") { it.dep.name }}.\n\nThis downloads packages over your connection — it can be large and take a while. It keeps running in the background.",
-            ) {
-                ensureNotificationsThen {
-                    DependencyInstallService.start(context, ArrayList(sel.map { it.dep.name }), ArrayList(sel.map { it.dep.installCmd }))
+            confirm =
+                DepConfirm(
+                    "Install dependencies?",
+                    "Install ${sel.size} item(s): ${sel.joinToString(", ") { it.dep.name }}.\n\nThis downloads packages over your connection — it can be large and take a while. It keeps running in the background.",
+                ) {
+                    ensureNotificationsThen {
+                        DependencyInstallService.start(
+                            context,
+                            ArrayList(sel.map { it.dep.name }),
+                            ArrayList(sel.map { it.dep.installCmd }),
+                        )
+                    }
                 }
-            }
         }
     }
 
     fun installNdk(version: String) {
-        confirm = DepConfirm(
-            "Install NDK $version?",
-            "Download and install this NDK version? The NDK is large (often several hundred MB). It keeps running in the background.",
-        ) {
-            ensureNotificationsThen {
-                DependencyInstallService.start(context, arrayListOf("Android NDK $version"), arrayListOf(ndkInstallCmd(version)))
+        confirm =
+            DepConfirm(
+                "Install NDK $version?",
+                "Download and install this NDK version? The NDK is large (often several hundred MB). It keeps running in the background.",
+            ) {
+                ensureNotificationsThen {
+                    DependencyInstallService.start(
+                        context,
+                        arrayListOf("Android NDK $version"),
+                        arrayListOf(ndkInstallCmd(version)),
+                    )
+                }
             }
-        }
     }
 
     fun uninstall(dep: Dep) {
@@ -293,7 +371,10 @@ fun DependenciesView(projectRoot: File, onDismiss: () -> Unit) {
                 uninstalling.add(dep.name)
                 scope.launch {
                     withContext(Dispatchers.IO) {
-                        ShellUtils.runUbuntu(command = arrayOf("bash", "-lc", dep.uninstallCmd), timeoutSeconds = 300L)
+                        ShellUtils.runUbuntu(
+                            command = arrayOf("bash", "-lc", dep.uninstallCmd),
+                            timeoutSeconds = 300L,
+                        )
                     }
                     uninstalling.remove(dep.name)
                     refreshKey++
@@ -304,7 +385,10 @@ fun DependenciesView(projectRoot: File, onDismiss: () -> Unit) {
     val selectedCount = selectableRows().count { selected[it.dep.name] == true }
     val hasSelection = selectedCount > 0
 
-    Dialog(onDismissRequest = { if (!busy) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
         Surface(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
                 ToolchainTopBar(
@@ -328,7 +412,8 @@ fun DependenciesView(projectRoot: File, onDismiss: () -> Unit) {
                             )
                         else -> {
                             val installed = rows.filter { it.state == DepState.INSTALLED }
-                            val available = rows.filter { it.state != DepState.INSTALLED && it.dep.name != "Android NDK" }
+                            val available =
+                                rows.filter { it.state != DepState.INSTALLED && it.dep.name != "Android NDK" }
                             Column(
                                 modifier =
                                     Modifier.fillMaxSize()
@@ -349,7 +434,9 @@ fun DependenciesView(projectRoot: File, onDismiss: () -> Unit) {
                                     ) {
                                         installed.forEachIndexed { i, row ->
                                             if (i > 0) RowDivider()
-                                            InstalledRow(row, uninstalling.contains(row.dep.name)) { uninstall(row.dep) }
+                                            InstalledRow(row, uninstalling.contains(row.dep.name)) {
+                                                uninstall(row.dep)
+                                            }
                                         }
                                     }
                                 }
@@ -371,7 +458,8 @@ fun DependenciesView(projectRoot: File, onDismiss: () -> Unit) {
                                     ToolchainSection(
                                         icon = drawables.android,
                                         title = "Android NDK",
-                                        subtitle = "Install multiple versions side by side — projects pick the one they need.",
+                                        subtitle =
+                                            "Install multiple versions side by side — projects pick the one they need.",
                                     ) {
                                         NDK_VERSIONS.forEachIndexed { i, version ->
                                             if (i > 0) RowDivider()
@@ -393,8 +481,13 @@ fun DependenciesView(projectRoot: File, onDismiss: () -> Unit) {
                                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                                 Spacer(Modifier.width(10.dp))
                                 Text(
-                                    text = stringResource(strings.installing) +
-                                        if (DependencyInstaller.currentName.isNotBlank()) "  ·  ${DependencyInstaller.currentName}" else "",
+                                    text =
+                                        stringResource(strings.installing) +
+                                            if (DependencyInstaller.currentName.isNotBlank()) {
+                                                "  ·  ${DependencyInstaller.currentName}"
+                                            } else {
+                                                ""
+                                            },
                                     style = MaterialTheme.typography.bodyMedium,
                                     modifier = Modifier.weight(1f),
                                     maxLines = 1,
@@ -409,7 +502,7 @@ fun DependenciesView(projectRoot: File, onDismiss: () -> Unit) {
                                 }
                             }
                             Spacer(Modifier.height(8.dp))
-                            androidx.compose.material3.LinearProgressIndicator(
+                            LinearProgressIndicator(
                                 progress = { DependencyInstaller.progress },
                                 modifier = Modifier.fillMaxWidth().height(6.dp),
                             )
@@ -422,7 +515,11 @@ fun DependenciesView(projectRoot: File, onDismiss: () -> Unit) {
                             modifier = Modifier.fillMaxWidth().height(50.dp),
                             onClick = { installSelected() },
                         ) {
-                            Icon(painterResource(drawables.download), contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(
+                                painterResource(drawables.download),
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
                             Spacer(Modifier.width(8.dp))
                             Text(
                                 text =
@@ -446,11 +543,15 @@ fun DependenciesView(projectRoot: File, onDismiss: () -> Unit) {
             title = { Text(c.title) },
             text = { Text(c.message) },
             confirmButton = {
-                TextButton(onClick = {
-                    val run = c.run
-                    confirm = null
-                    run()
-                }) { Text(stringResource(strings.download)) }
+                TextButton(
+                    onClick = {
+                        val run = c.run
+                        confirm = null
+                        run()
+                    }
+                ) {
+                    Text(stringResource(strings.download))
+                }
             },
             dismissButton = { TextButton(onClick = { confirm = null }) { Text(stringResource(strings.cancel)) } },
         )
@@ -506,7 +607,11 @@ private fun InstalledRow(row: DepRow, removing: Boolean, onUninstall: () -> Unit
                 removing -> StatusPill("Removing…", PillTone.PROGRESS, showSpinner = true)
                 row.dep.uninstallCmd.isNotBlank() ->
                     OutlinedButton(onClick = onUninstall) {
-                        Icon(painterResource(drawables.close), contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(
+                            painterResource(drawables.close),
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
                         Spacer(Modifier.width(6.dp))
                         Text("Uninstall")
                     }
@@ -529,7 +634,8 @@ private fun AvailableRow(row: DepRow, selected: MutableMap<String, Boolean>, bus
         description = row.dep.summary,
         trailing = {
             when (svc) {
-                DepInstallStatus.INSTALLING -> StatusPill(stringResource(strings.installing), PillTone.PROGRESS, showSpinner = true)
+                DepInstallStatus.INSTALLING ->
+                    StatusPill(stringResource(strings.installing), PillTone.PROGRESS, showSpinner = true)
                 DepInstallStatus.DONE -> StatusPill(stringResource(strings.dep_installed), PillTone.SUCCESS)
                 DepInstallStatus.FAILED -> StatusPill(stringResource(strings.dep_failed), PillTone.ERROR)
                 DepInstallStatus.PENDING -> StatusPill(stringResource(strings.dep_queued), PillTone.INFO)
@@ -566,14 +672,20 @@ private fun NdkVersionRow(version: String, installedNdk: List<String>, busy: Boo
                 null
             },
         description =
-            if (version == NDK_LATEST) "Installs the newest available NDK release" else "Native Development Kit $version",
+            if (version == NDK_LATEST) "Installs the newest available NDK release"
+            else "Native Development Kit $version",
         trailing = {
             when {
-                svc == DepInstallStatus.INSTALLING -> StatusPill(stringResource(strings.installing), PillTone.PROGRESS, showSpinner = true)
+                svc == DepInstallStatus.INSTALLING ->
+                    StatusPill(stringResource(strings.installing), PillTone.PROGRESS, showSpinner = true)
                 isInstalled || svc == DepInstallStatus.DONE -> {}
                 else ->
                     OutlinedButton(enabled = !busy, onClick = onInstall) {
-                        Icon(painterResource(drawables.download), contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(
+                            painterResource(drawables.download),
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
                         Spacer(Modifier.width(6.dp))
                         Text(stringResource(strings.download))
                     }
@@ -589,7 +701,7 @@ private fun LiveLog() {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLowest,
         shape = RoundedCornerShape(12.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
         modifier = Modifier.fillMaxWidth().height(180.dp),
     ) {
         Column(modifier = Modifier.fillMaxSize().verticalScroll(scroll).padding(12.dp)) {

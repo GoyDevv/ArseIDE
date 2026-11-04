@@ -19,18 +19,23 @@ enum class ProjectTemplate(
     val description: String,
     val showsPackageName: Boolean = false,
 ) {
-    NONE("None", recommendsSandbox = false, iconRes = drawables.folder, description = "Empty project — just a folder to start from."),
+    NONE(
+        "None",
+        recommendsSandbox = false,
+        iconRes = drawables.folder,
+        description = "Empty project — just a clean folder and README to start from.",
+    ),
     PYTHON3(
         "Python 3",
         recommendsSandbox = false,
         iconRes = drawables.python,
-        description = "A Python 3 script with a ready-to-run main file.",
+        description = "A Python 3 project with a ready-to-run main.py and requirements.txt.",
     ),
     PYTHON(
         "Python",
         recommendsSandbox = false,
         iconRes = drawables.python,
-        description = "A minimal Python project.",
+        description = "A minimal Python project ready to run in the sandbox.",
     ),
     NODEJS(
         "Node.js",
@@ -42,20 +47,20 @@ enum class ProjectTemplate(
         "Static Web (HTML/CSS/JS)",
         recommendsSandbox = false,
         iconRes = drawables.html,
-        description = "A static website — HTML, CSS and JavaScript.",
+        description = "A modern responsive website — HTML5, Glassmorphic CSS, and JavaScript.",
     ),
     MINECRAFT_MOD(
         "Minecraft Java Mod",
         recommendsSandbox = true,
         iconRes = drawables.java,
-        description = "A Fabric or Forge mod, ready for Gradle.",
+        description = "A Fabric or Forge mod, configured with real resolved Gradle versions.",
         showsPackageName = true,
     ),
     ANDROID_COMPOSE(
         "Android (Jetpack Compose)",
         recommendsSandbox = true,
         iconRes = drawables.android,
-        description = "An Android app built with Jetpack Compose.",
+        description = "An Android app built with Jetpack Compose and Material 3.",
         showsPackageName = true,
     );
 
@@ -72,19 +77,6 @@ enum class ModLoader(val displayName: String) {
 /**
  * A fully resolved request to create a project. The dialog produces one of these and hands it to
  * [ProjectScaffolder].
- *
- * @param name project (and root directory) name.
- * @param template the chosen template.
- * @param parentDir directory in which the project root folder will be created.
- * @param packageName java/kotlin package (Minecraft / Android).
- * @param author author name written into manifests.
- * @param modLoader Fabric or Forge (Minecraft only).
- * @param modId Minecraft mod id (lowercase, used as the resources/config id).
- * @param modDescription human readable mod description.
- * @param modVersion mod artifact version.
- * @param minecraftVersion target Minecraft version (e.g. "1.21.1").
- * @param jdkVersion Java language/toolchain version (e.g. "17", "21").
- * @param sdkVersion Android compile/target SDK API level (e.g. "34"); blank uses a sensible default.
  */
 data class ProjectConfig(
     val name: String,
@@ -101,34 +93,45 @@ data class ProjectConfig(
     val sdkVersion: String = "",
     val initGit: Boolean = false,
 ) {
-    /** Sanitised mod id derived from [modId] (falls back to the project name). */
+    /** Sanitised mod id derived from [modId] (falls back to the project name). Must match ^[a-z][a-z0-9_]{1,63}$. */
     fun resolvedModId(): String {
         val base = modId.ifBlank { name }
-        return base.lowercase().replace(Regex("[^a-z0-9_]"), "_").trim('_').ifBlank { "modid" }
+        val cleaned = base.lowercase().replace(Regex("[^a-z0-9_]"), "_").trim('_').ifBlank { "modid" }
+        val prefixed = if (cleaned.first().isLetter()) cleaned else "mod_$cleaned"
+        return prefixed.take(63).let { if (it.length < 2) "${it}mod" else it }
+    }
+
+    private fun sanitizePkgSegment(raw: String, fallback: String): String {
+        val cleaned = raw.lowercase().replace(Regex("[^a-z0-9_]"), "").trim('_').ifBlank { fallback }
+        return if (cleaned.first().isDigit()) "_$cleaned" else cleaned
     }
 
     /** Lowercase alphanumeric slug of the author, used to build a package name. */
-    fun authorSlug(): String = author.lowercase().replace(Regex("[^a-z0-9]"), "").ifBlank { "example" }
+    fun authorSlug(): String = sanitizePkgSegment(author, "example")
 
     /** Lowercase alphanumeric slug of the project name. */
-    fun nameSlug(): String = name.lowercase().replace(Regex("[^a-z0-9]"), "").ifBlank { "app" }
+    fun nameSlug(): String = sanitizePkgSegment(name, "app")
 
     /**
      * Intelligently resolved package / applicationId. Uses the user-provided [packageName] when set,
      * otherwise derives `com.<author>.<name>` from the project name and author.
      */
     fun resolvedPackageName(): String =
-        packageName.trim().ifBlank { "com.${authorSlug()}.${nameSlug()}" }
+        packageName
+            .trim()
+            .ifBlank { "com.${authorSlug()}.${nameSlug()}" }
             .lowercase()
             .split(".")
             .filter { it.isNotBlank() }
-            .joinToString(".") { it.replace(Regex("[^a-z0-9_]"), "") }
+            .map { sanitizePkgSegment(it, "app") }
+            .let { if (it.size < 2) listOf("com", "example") + it else it }
+            .joinToString(".")
 
     /** Package as a relative path (e.g. com.example -> com/example). */
     fun packagePath(): String = resolvedPackageName().replace('.', '/')
 
-    /** Android compile/target SDK API level; defaults to 34 when unset or invalid. */
-    fun resolvedCompileSdk(): Int = sdkVersion.trim().toIntOrNull()?.takeIf { it in 1..99 } ?: 34
+    /** Android compile/target SDK API level; defaults to 35 when unset or invalid. */
+    fun resolvedCompileSdk(): Int = sdkVersion.trim().toIntOrNull()?.takeIf { it in 21..99 } ?: 35
 
     /** Android minSdk — 24 by default, but never above the chosen compile SDK. */
     fun resolvedMinSdk(): Int = minOf(24, resolvedCompileSdk())

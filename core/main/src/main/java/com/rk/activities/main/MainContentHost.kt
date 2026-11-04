@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
@@ -42,8 +43,8 @@ import com.rk.settings.Settings
 import com.rk.tabs.editor.EditorTab
 import com.rk.theme.XedTheme
 import com.rk.utils.dialogRes
-import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
+import kotlinx.coroutines.launch
 
 var gitViewModel = WeakReference<GitViewModel?>(null)
 var fileTreeViewModel = WeakReference<FileTreeViewModel?>(null)
@@ -129,10 +130,12 @@ fun MainActivity.MainContentHost(
             val softThreshold = with(density) { 50.dp.toPx() }
             val hardThreshold = with(density) { 100.dp.toPx() }
 
-            val snackbarBottomPadding =
-                if (Settings.show_extra_keys) {
+            val extraKeysHeight =
+                if (Settings.show_extra_keys && viewModel.tabs.isNotEmpty()) {
                     if (Settings.split_extra_keys) 88.dp else 48.dp
                 } else 0.dp
+            val bottomNavHeight = if (!keyboardShown) 74.dp else 0.dp
+            val snackbarBottomPadding = extraKeysHeight + bottomNavHeight
 
             val mainContent: @Composable () -> Unit = {
                 Scaffold(
@@ -145,8 +148,9 @@ fun MainActivity.MainContentHost(
                         ) { data ->
                             Snackbar(
                                 snackbarData = data,
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                shape = RoundedCornerShape(14.dp),
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                contentColor = MaterialTheme.colorScheme.onSurface,
                                 actionColor = MaterialTheme.colorScheme.primary,
                                 dismissActionContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

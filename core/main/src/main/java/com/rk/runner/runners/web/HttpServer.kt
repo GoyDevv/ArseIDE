@@ -10,6 +10,7 @@ import com.rk.utils.isDarkTheme
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.Response.Status
 import java.net.URLConnection
+import java.net.URLDecoder
 import kotlinx.coroutines.runBlocking
 
 class HttpServer(
@@ -26,23 +27,65 @@ class HttpServer(
         return false
     }
 
+    private fun resolveMimeType(fileName: String): String {
+        val ext = fileName.substringAfterLast('.', "").lowercase()
+        return when (ext) {
+            "html", "htm" -> "text/html; charset=utf-8"
+            "css" -> "text/css; charset=utf-8"
+            "js", "mjs", "cjs" -> "application/javascript; charset=utf-8"
+            "json", "map" -> "application/json; charset=utf-8"
+            "svg" -> "image/svg+xml"
+            "png" -> "image/png"
+            "jpg", "jpeg" -> "image/jpeg"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "ico" -> "image/x-icon"
+            "wasm" -> "application/wasm"
+            "xml" -> "application/xml; charset=utf-8"
+            "txt", "md", "markdown" -> "text/plain; charset=utf-8"
+            "woff" -> "font/woff"
+            "woff2" -> "font/woff2"
+            "ttf" -> "font/ttf"
+            "otf" -> "font/otf"
+            "mp3" -> "audio/mpeg"
+            "wav" -> "audio/wav"
+            "ogg" -> "audio/ogg"
+            "mp4" -> "video/mp4"
+            "webm" -> "video/webm"
+            else -> URLConnection.guessContentTypeFromName(fileName) ?: "application/octet-stream"
+        }
+    }
+
+    private fun resolveRelativePath(base: FileObject, rawUri: String): FileObject? {
+        val decoded = runCatching { URLDecoder.decode(rawUri, "UTF-8") }.getOrDefault(rawUri)
+        val segments = decoded.trimStart('/').split('/').filter { it.isNotEmpty() && it != "." }
+        if (segments.any { it == ".." }) return null
+        var current: FileObject = base
+        for (seg in segments) {
+            current = current.getChildForName(seg)
+        }
+        return current
+    }
+
     override fun serve(session: IHTTPSession?): Response {
         return runBlocking {
-            val uri = session!!.uri
+            val uri = session?.uri ?: "/"
 
             if (root.isFile()) {
                 if (!root.exists()) return@runBlocking notFoundError()
                 return@runBlocking serveFile(root)
             }
 
-            var file = root.getChildForName(uri)
+            var file = resolveRelativePath(root, uri) ?: return@runBlocking forbiddenError(root)
             if (file.isDirectory()) {
                 file = file.getChildForName("index.html")
             }
 
             // Hook override
-            serveHook?.invoke(file, session)?.let {
-                return@runBlocking it
+            if (session != null) {
+                serveHook?.invoke(file, session)?.let {
+                    return@runBlocking it
+                }
             }
 
             if (!file.exists()) return@runBlocking notFoundError()
@@ -61,8 +104,8 @@ class HttpServer(
 
     private suspend fun serveFileWithEruda(file: FileObject): Response {
         return try {
-            val mime = URLConnection.guessContentTypeFromName(file.getName()) ?: "application/octet-stream"
-            if (mime != MIME_HTML) {
+            val mime = resolveMimeType(file.getName())
+            if (!mime.startsWith(MIME_HTML)) {
                 return serveFileWithoutEruda(file)
             }
 
@@ -80,7 +123,7 @@ class HttpServer(
             val html = file.getInputStream().bufferedReader().use { it.readText() }
             val injected =
                 if (html.contains("<head>", ignoreCase = true)) {
-                    html.replace("<head>", "<head>$erudaScript", ignoreCase = true)
+                    html.replaceFirst("<head>", "<head>$erudaScript", ignoreCase = true)
                 } else {
                     erudaScript + html
                 }
@@ -97,7 +140,7 @@ class HttpServer(
         return try {
             newFixedLengthResponse(
                 Status.OK,
-                URLConnection.guessContentTypeFromName(file.getName()) ?: "application/octet-stream",
+                resolveMimeType(file.getName()),
                 file.getInputStream(),
                 file.length(),
             )

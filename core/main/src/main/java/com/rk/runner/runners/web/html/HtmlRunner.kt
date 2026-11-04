@@ -18,6 +18,7 @@ import com.rk.runner.runners.web.HttpServer
 import com.rk.settings.Settings
 import com.rk.utils.toast
 import java.net.BindException
+import java.net.URLEncoder
 
 object HtmlRunner : Runner() {
 
@@ -48,7 +49,8 @@ object HtmlRunner : Runner() {
         val address = "http://localhost:$port"
         toast(strings.http_server_at.getFilledString(address))
 
-        val url = "$address/${fileObject.getName()}"
+        val encodedName = URLEncoder.encode(fileObject.getName(), "UTF-8").replace("+", "%20")
+        val url = "$address/$encodedName"
         if (Settings.launch_in_browser) {
             val intent = Intent(Intent.ACTION_VIEW, url.toUri())
             activity.startActivity(intent)

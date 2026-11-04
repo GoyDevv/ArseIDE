@@ -29,6 +29,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,6 +43,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewModelScope
 import com.rk.activities.main.MainActivity
@@ -90,7 +93,7 @@ fun FileTree(
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (viewModel.isAnyFileSelected(rootNode.file)) {
@@ -99,14 +102,27 @@ fun FileTree(
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(strings.go_prev))
                     }
 
-                    Text(viewModel.getSelectionCount(rootNode.file).toString())
+                    Text(
+                        text = "${viewModel.getSelectionCount(rootNode.file)} selected",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
+            } else {
+                Text(
+                    text = rootNode.name,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(start = 4.dp),
+                )
             }
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End,
-                modifier = Modifier.weight(1f),
+                modifier = if (viewModel.isAnyFileSelected(rootNode.file)) Modifier.weight(1f) else Modifier,
             ) {
                 if (viewModel.isAnyFileSelected(rootNode.file)) {
                     SelectionActions(viewModel, drawerViewModel, rootNode)
@@ -116,19 +132,20 @@ fun FileTree(
             }
         }
 
-        Box(modifier = Modifier.fillMaxWidth().height(4.dp)) {
+        Box(modifier = Modifier.fillMaxWidth().height(3.dp)) {
             if (viewModel.isFileOperationInProgress() || searchViewModel.get()?.isIndexing(rootNode.file) == true) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxSize())
             } else {
-                HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             }
         }
 
         Column(
             modifier =
-                Modifier.horizontalScroll(rememberScrollState())
+                Modifier.fillMaxSize()
+                    .horizontalScroll(rememberScrollState())
                     .verticalScroll(rememberScrollState())
-                    .padding(vertical = 8.dp)
+                    .padding(top = 6.dp, bottom = 88.dp)
         ) {
             key(rootNode.file.hashCode(), rootNode.name) {
                 FileTreeNodeItem(
@@ -157,10 +174,8 @@ private fun SelectionActions(viewModel: FileTreeViewModel, drawerViewModel: Draw
         val availableWidth = maxWidth - 48.dp
         val maxVisibleCount = (availableWidth / itemWidth).toInt().coerceAtLeast(0)
 
-        // Calculate actual number of actions to show in toolbar
         var actualVisibleCount = min(actions.size, maxVisibleCount)
 
-        // Make sure that the dropdown menu never contains only one entry
         if (actions.size - actualVisibleCount == 1) {
             actualVisibleCount += 1
         }
@@ -172,13 +187,13 @@ private fun SelectionActions(viewModel: FileTreeViewModel, drawerViewModel: Draw
             toolbarActions.forEach { action ->
                 when (action) {
                     is FileAction -> {
-                        val file = selectedFiles.first() // Is safe because of the check in getActions()
+                        val file = selectedFiles.first()
                         IconButton(
                             enabled = action.isEnabled(file),
                             onClick = {
-                                val context =
+                                val actionContext =
                                     FileActionContext(file, rootNode.file, viewModel, drawerViewModel, context)
-                                action.action(context)
+                                action.action(actionContext)
 
                                 viewModel.unselectAllFiles(rootNode.file)
                             },
@@ -190,7 +205,7 @@ private fun SelectionActions(viewModel: FileTreeViewModel, drawerViewModel: Draw
                         IconButton(
                             enabled = action.isEnabled(selectedFiles),
                             onClick = {
-                                val context =
+                                val actionContext =
                                     MultiFileActionContext(
                                         selectedFiles,
                                         rootNode.file,
@@ -198,7 +213,7 @@ private fun SelectionActions(viewModel: FileTreeViewModel, drawerViewModel: Draw
                                         drawerViewModel,
                                         context,
                                     )
-                                action.action(context)
+                                action.action(actionContext)
 
                                 viewModel.unselectAllFiles(rootNode.file)
                             },
@@ -219,13 +234,13 @@ private fun SelectionActions(viewModel: FileTreeViewModel, drawerViewModel: Draw
                         dropdownActions.forEach { action ->
                             when (action) {
                                 is FileAction -> {
-                                    val file = selectedFiles.first() // Is safe because of the check in getActions()
+                                    val file = selectedFiles.first()
                                     DropdownMenuItem(
                                         text = { Text(action.title) },
                                         leadingIcon = { XedIcon(action.icon, contentDescription = action.title) },
                                         enabled = action.isEnabled(file),
                                         onClick = {
-                                            val context =
+                                            val actionContext =
                                                 FileActionContext(
                                                     file,
                                                     rootNode.file,
@@ -233,7 +248,7 @@ private fun SelectionActions(viewModel: FileTreeViewModel, drawerViewModel: Draw
                                                     drawerViewModel,
                                                     context,
                                                 )
-                                            action.action(context)
+                                            action.action(actionContext)
 
                                             viewModel.unselectAllFiles(rootNode.file)
                                             expanded = false
@@ -246,7 +261,7 @@ private fun SelectionActions(viewModel: FileTreeViewModel, drawerViewModel: Draw
                                         leadingIcon = { XedIcon(action.icon, contentDescription = action.title) },
                                         enabled = action.isEnabled(selectedFiles),
                                         onClick = {
-                                            val context =
+                                            val actionContext =
                                                 MultiFileActionContext(
                                                     selectedFiles,
                                                     rootNode.file,
@@ -254,7 +269,7 @@ private fun SelectionActions(viewModel: FileTreeViewModel, drawerViewModel: Draw
                                                     drawerViewModel,
                                                     context,
                                                 )
-                                            action.action(context)
+                                            action.action(actionContext)
 
                                             viewModel.unselectAllFiles(rootNode.file)
                                             expanded = false

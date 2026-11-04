@@ -47,56 +47,51 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.blankj.utilcode.util.ClipboardUtils
+import com.rk.components.GlassSurface
 import com.rk.resources.drawables
 import com.rk.resources.strings
 import com.rk.utils.toast
 
-/**
- * Build these from the app's theme typography (so they use the font selected in Settings) via
- * [outputTextStyle] / [latestLineStyle] inside composition — a plain top-level TextStyle would fall
- * back to the system font.
- */
 @Composable
 private fun outputTextStyle() =
-    MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.sp)
+    MaterialTheme.typography.bodySmall.copy(
+        fontFamily = FontFamily.Monospace,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.sp,
+    )
 
 @Composable
 private fun latestLineStyle() =
     MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 14.sp, letterSpacing = 0.sp)
 
 /**
- * Floating build/run view shown at the bottom of the editor while a background build runs.
- *
- * Collapsed it's a slim "glass" bar (drag handle + label + live progress + latest output line).
- * Swiping up — or tapping it — springs it open (with a soft bounce) to ~half the screen, revealing
- * the full, selectable/copyable output; swiping down from the handle closes it. While the keyboard
- * is open it docks flush to the bottom above the IME; otherwise it floats with rounded corners. The
- * editor behind it is blurred while expanded (see MainContent). Backed by [RunOutputState].
+ * Floating glassmorphic build/run view shown at the bottom of the editor while a background build runs.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun RunOutputView(modifier: Modifier = Modifier) {    if (!RunOutputState.isActive) return
+fun RunOutputView(modifier: Modifier = Modifier) {
+    if (!RunOutputState.isActive) return
 
     val expanded = RunOutputState.expanded
     val imeVisible = WindowInsets.isImeVisible
 
     val configuration = LocalConfiguration.current
-    val expandedHeight = (configuration.screenHeightDp * 0.5f).dp
+    val expandedHeight = (configuration.screenHeightDp * 0.48f).dp
     val contentHeight by
         animateDpAsState(
             targetValue = if (expanded) expandedHeight else 0.dp,
-            // Snappy yet smooth with a subtle settle — symmetric for open and close.
             animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium),
             label = "runOutputHeight",
         )
@@ -108,13 +103,19 @@ fun RunOutputView(modifier: Modifier = Modifier) {    if (!RunOutputState.isActi
     }
 
     val floating = !imeVisible
-    val corner = if (floating) 20.dp else 0.dp
+    val corner = if (floating) 22.dp else 0.dp
+    val accentGlow =
+        when {
+            RunOutputState.isRunning -> MaterialTheme.colorScheme.primary
+            RunOutputState.exitCode == 0 -> Color(0xFF4CAF50)
+            else -> MaterialTheme.colorScheme.error
+        }
 
-    Surface(
+    GlassSurface(
         modifier =
             modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (floating) 8.dp else 0.dp, vertical = if (floating) 8.dp else 0.dp),
+                .padding(horizontal = if (floating) 12.dp else 0.dp, vertical = if (floating) 4.dp else 0.dp),
         shape =
             RoundedCornerShape(
                 topStart = corner,
@@ -122,10 +123,8 @@ fun RunOutputView(modifier: Modifier = Modifier) {    if (!RunOutputState.isActi
                 bottomStart = corner,
                 bottomEnd = corner,
             ),
-        // Frosted-glass-ish translucent container; sits above the blurred editor when expanded.
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
-        tonalElevation = 3.dp,
-        shadowElevation = 8.dp,
+        shadowElevation = 12.dp,
+        accentGlow = accentGlow,
     ) {
         Column(
             modifier =
@@ -141,7 +140,7 @@ fun RunOutputView(modifier: Modifier = Modifier) {    if (!RunOutputState.isActi
                     )
                 }
         ) {
-            // Drag handle ("____").
+            // Drag handle
             Box(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
                 contentAlignment = Alignment.Center,
@@ -158,18 +157,17 @@ fun RunOutputView(modifier: Modifier = Modifier) {    if (!RunOutputState.isActi
             Header(expanded)
 
             if (RunOutputState.isRunning) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(3.dp))
             } else {
-                HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
             }
 
             Column(modifier = Modifier.fillMaxWidth().height(contentHeight)) {
                 if (contentHeight > 0.dp) {
-                    // Terminal-style panel: darkest surface tone + monospace, for a console feel.
                     Surface(
-                        modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                        modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.92f),
                     ) {
                         SelectionContainer(modifier = Modifier.fillMaxSize()) {
                             Text(
@@ -184,13 +182,12 @@ fun RunOutputView(modifier: Modifier = Modifier) {    if (!RunOutputState.isActi
                             )
                         }
                     }
-                    HorizontalDivider()
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        // Scroll-lock toggle: when on, the view auto-scrolls to the newest output.
                         TextButton(onClick = { RunOutputState.autoScroll = !RunOutputState.autoScroll }) {
                             Icon(
                                 painter = painterResource(drawables.arrow_downward),
@@ -235,7 +232,7 @@ private fun Header(expanded: Boolean) {
         modifier =
             Modifier.fillMaxWidth()
                 .clickable { RunOutputState.expanded = !RunOutputState.expanded }
-                .padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 6.dp),
+                .padding(start = 14.dp, end = 4.dp, top = 2.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (RunOutputState.isRunning) {
@@ -245,7 +242,7 @@ private fun Header(expanded: Boolean) {
             Icon(
                 painter = painterResource(drawables.run),
                 contentDescription = null,
-                tint = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                tint = if (ok) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
                 modifier = Modifier.size(18.dp),
             )
         }
@@ -260,14 +257,12 @@ private fun Header(expanded: Boolean) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            // Animated latest line (fades between updates).
             AnimatedContent(
                 targetState =
                     RunOutputState.latestLine.ifBlank {
                         if (RunOutputState.isRunning) stringResource(strings.running)
                         else stringResource(strings.finished)
                     },
-                // New output line slides up while the old one slides out — a smooth streaming feel.
                 transitionSpec = {
                     (slideInVertically { it } + fadeIn()) togetherWith (slideOutVertically { -it } + fadeOut())
                 },

@@ -11,9 +11,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -29,9 +31,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.rk.components.compose.utils.addIf
@@ -56,24 +61,25 @@ fun FileTreeNodeItem(
     if (isHidden && !Settings.show_hidden_files_drawer) return
 
     val isExpanded = viewModel.isNodeExpanded(root, node.file)
-    val horizontalPadding = (depth * 16).dp
+    val horizontalPadding = (depth * 14).dp
 
     val isLoading = viewModel.isNodeLoading(node.file)
     val isCut = viewModel.isNodeCut(node.file)
 
     val isFileSelected = viewModel.isFileSelected(root, node.file)
     val isFileFocused = viewModel.isFileFocused(root, node.file)
+    val isHighlighted = isFileFocused || isFileSelected
 
     val context = LocalContext.current
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val selectionColor = MaterialTheme.colorScheme.primaryContainer
+    val surfaceColor = Color.Transparent
+    val selectionColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
 
     val nodeBackground = remember { Animatable(surfaceColor) }
-    LaunchedEffect(isFileFocused, isFileSelected) {
-        if (isFileFocused || isFileSelected) {
-            nodeBackground.animateTo(selectionColor, animationSpec = tween(300))
+    LaunchedEffect(isHighlighted) {
+        if (isHighlighted) {
+            nodeBackground.animateTo(selectionColor, animationSpec = tween(220))
         } else {
-            nodeBackground.animateTo(surfaceColor, animationSpec = tween(300))
+            nodeBackground.animateTo(surfaceColor, animationSpec = tween(220))
         }
     }
 
@@ -110,10 +116,14 @@ fun FileTreeNodeItem(
             } else node.name
     }
 
+    val fullDrawerWidth = getDrawerWidth()
+
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier =
-                Modifier.addIf(isCut) { alpha(0.5f) }
+                Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .addIf(isCut) { alpha(0.5f) }
                     .background(nodeBackground.value)
                     .combinedClickable(
                         onClick = {
@@ -132,9 +142,20 @@ fun FileTreeNodeItem(
                         onLongClick = { viewModel.toggleSelection(root, node.file) },
                     )
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                    .padding(vertical = 5.dp, horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (isHighlighted) {
+                Box(
+                    modifier =
+                        Modifier.width(3.dp)
+                            .height(16.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(MaterialTheme.colorScheme.primary)
+                )
+                Spacer(modifier = Modifier.width(5.dp))
+            }
+
             Spacer(modifier = Modifier.width(horizontalPadding))
 
             if (node.isDirectory) {
@@ -148,7 +169,7 @@ fun FileTreeNodeItem(
                         Icon(
                             painter = painterResource(drawables.chevron_right),
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                             modifier = Modifier.size(16.dp).rotate(rotationDegree),
                         )
                     }
@@ -164,10 +185,14 @@ fun FileTreeNodeItem(
             Spacer(modifier = Modifier.width(8.dp))
 
             val underlineColor = getUnderlineColor(context, viewModel, node.file)
-            Row(modifier = Modifier.width((getDrawerWidth() - 61.dp)), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.width((fullDrawerWidth - 20.dp).coerceAtLeast(180.dp)),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
                     text = displayName,
                     style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isHighlighted || node.isDirectory) FontWeight.Medium else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.addIf(underlineColor != null) { drawErrorUnderline(underlineColor!!) },
@@ -177,7 +202,7 @@ fun FileTreeNodeItem(
         }
 
         AnimatedVisibility(
-            modifier = Modifier.width(getDrawerWidth()),
+            modifier = Modifier.width(fullDrawerWidth),
             visible = isExpanded && node.isDirectory && children.isNotEmpty(),
         ) {
             Column {

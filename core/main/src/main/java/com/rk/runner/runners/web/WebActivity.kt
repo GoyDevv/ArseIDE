@@ -31,8 +31,11 @@ import com.rk.theme.XedTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 abstract class WebActivity : ComponentActivity() {
+    protected var activeWebView: WebView? = null
+
     @SuppressLint("SetJavaScriptEnabled")
     fun setupWebView(webView: WebView) {
+        activeWebView = webView
         val webSettings = webView.settings
         webSettings.javaScriptEnabled = true
         webSettings.databaseEnabled = true
@@ -62,7 +65,7 @@ abstract class WebActivity : ComponentActivity() {
     }
 
     private fun handleBackPressed() {
-        val webView = findViewById<WebView>(android.R.id.content).findViewById<WebView>(0)
+        val webView = activeWebView
         if (webView != null && webView.canGoBack()) {
             webView.goBack()
         } else {
@@ -77,6 +80,7 @@ abstract class WebActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        activeWebView = null
         super.onDestroy()
         System.gc()
     }

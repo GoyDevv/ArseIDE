@@ -8,10 +8,6 @@ import org.eclipse.jgit.api.Git
 
 /**
  * Writes the real files for a [ProjectConfig] onto disk.
- *
- * The scaffolder is pure file IO (java.io.File) so it works against any path the app can write to:
- * the sandbox home (exec-capable, required for build templates) or Documents/XED (fine for plain
- * editing). Callers decide the parent directory via [ProjectConfig.parentDir].
  */
 object ProjectScaffolder {
 
@@ -72,15 +68,37 @@ object ProjectScaffolder {
 
     // ---- helpers ----------------------------------------------------------------
 
-    private fun File.write(relativePath: String, content: String) {
+    private fun File.write(relativePath: String, content: String): File {
         val target = File(this, relativePath)
         target.parentFile?.mkdirs()
         target.writeText(content.trimStart('\n'))
+        return target
     }
 
+    private fun escapeJson(s: String): String =
+        s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "")
+
+    private fun escapeXml(s: String): String =
+        s.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "\\'")
+
+    private fun escapeHtml(s: String): String =
+        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+
+    private fun safeJavaClassName(raw: String, fallback: String): String {
+        val cleaned = raw.replace(Regex("[^A-Za-z0-9]"), "").ifBlank { fallback }
+        val prefixed = if (cleaned.first().isDigit()) "App$cleaned" else cleaned
+        return prefixed.replaceFirstChar { it.uppercase() }
+    }
+
+    private fun gradleJavaVersionEnum(jdk: String): String =
+        if (jdk == "8" || jdk == "1.8") "VERSION_1_8" else "VERSION_$jdk"
+
     /**
-     * Initialises a git repository and creates an initial commit. Failures are swallowed so a git
-     * problem (e.g. on a filesystem that rejects it) never aborts project creation.
+     * Initialises a git repository and creates an initial commit.
      */
     private fun initGitRepository(root: File, config: ProjectConfig) {
         runCatching {
@@ -99,30 +117,34 @@ object ProjectScaffolder {
     // ---- None -------------------------------------------------------------------
 
     private fun scaffoldNone(root: File, config: ProjectConfig) {
-        root.write("README.md", "# ${config.name}\n")
+        root.write("README.md", "# ${config.name}\n\nCreated with XED-PRO.\n")
+        root.write(".gitignore", ".DS_Store\n*.log\n/build/\n/out/\n")
     }
 
     // ---- Python -----------------------------------------------------------------
 
     private fun scaffoldPython(root: File, config: ProjectConfig, python3: Boolean) {
         val shebang = if (python3) "#!/usr/bin/env python3" else "#!/usr/bin/env python"
-        root.write(
-            "main.py",
-            """
-            $shebang
-            # ${config.name} - entry point
+        val safeName = escapeJson(config.name)
+        val mainFile =
+            root.write(
+                "main.py",
+                """
+                $shebang
+                # ${config.name} - entry point
 
 
-            def main() -> None:
-                print("Hello from ${config.name}!")
+                def main() -> None:
+                    print("Hello from $safeName!")
 
 
-            if __name__ == "__main__":
-                main()
-            """
-                .trimIndent() + "\n",
-        )
-        root.write("requirements.txt", "")
+                if __name__ == "__main__":
+                    main()
+                """
+                    .trimIndent() + "\n",
+            )
+        runCatching { mainFile.setExecutable(true, false) }
+        root.write("requirements.txt", "# Add your pip dependencies here (one per line)\n")
         root.write(
             ".gitignore",
             """
@@ -134,28 +156,33 @@ object ProjectScaffolder {
             """
                 .trimIndent() + "\n",
         )
-        root.write("README.md", "# ${config.name}\n\nRun with:\n\n```bash\n${if (python3) "python3" else "python"} main.py\n```\n")
+        root.write(
+            "README.md",
+            "# ${config.name}\n\nRun with:\n\n```bash\n${if (python3) "python3" else "python"} main.py\n```\n",
+        )
     }
 
     // ---- Node.js ----------------------------------------------------------------
 
     private fun scaffoldNode(root: File, config: ProjectConfig) {
         val pkg = config.name.lowercase().replace(Regex("[^a-z0-9-_]"), "-").trim('-').ifBlank { "app" }
+        val safeDesc = escapeJson(config.name)
+        val safeAuthor = escapeJson(config.author)
         root.write(
             "package.json",
             """
             {
               "name": "$pkg",
               "version": "1.0.0",
-              "description": "${config.name}",
+              "description": "$safeDesc",
               "main": "index.js",
               "type": "commonjs",
               "scripts": {
                 "start": "node index.js",
-                "test": "echo \"Error: no test specified\" && exit 1"
+                "test": "echo \"No tests configured yet\" && exit 0"
               },
               "keywords": [],
-              "author": "${config.author}",
+              "author": "$safeAuthor",
               "license": "MIT"
             }
             """
@@ -167,7 +194,7 @@ object ProjectScaffolder {
             "use strict";
 
             function main() {
-              console.log("Hello from ${config.name}!");
+              console.log("Hello from $safeDesc!");
             }
 
             main();
@@ -193,6 +220,8 @@ object ProjectScaffolder {
     // ---- Static Web -------------------------------------------------------------
 
     private fun scaffoldWeb(root: File, config: ProjectConfig) {
+        val safeTitle = escapeHtml(config.name)
+        val safeJsTitle = escapeJson(config.name)
         root.write(
             "index.html",
             """
@@ -201,13 +230,17 @@ object ProjectScaffolder {
             <head>
                 <meta charset="UTF-8" />
                 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-                <title>${config.name}</title>
+                <title>$safeTitle</title>
                 <link rel="stylesheet" href="style.css" />
             </head>
             <body>
-                <main>
-                    <h1>${config.name}</h1>
-                    <p id="message">Hello from ${config.name}!</p>
+                <main class="glass-card">
+                    <span class="badge">XED-PRO Web Starter</span>
+                    <h1>$safeTitle</h1>
+                    <p id="message">Welcome to $safeTitle — edit <code>index.html</code>, <code>style.css</code>, or <code>script.js</code> and hit Run to preview live.</p>
+                    <div class="actions">
+                        <button id="counter-btn" type="button">Clicks: <span id="count">0</span></button>
+                    </div>
                 </main>
                 <script src="script.js"></script>
             </body>
@@ -218,15 +251,65 @@ object ProjectScaffolder {
         root.write(
             "style.css",
             """
-            :root { color-scheme: light dark; }
+            :root {
+                color-scheme: light dark;
+                --bg-start: #0b0f19;
+                --bg-end: #162038;
+                --card-bg: rgba(255, 255, 255, 0.08);
+                --card-border: rgba(255, 255, 255, 0.18);
+                --accent: #66e3f4;
+                --text: #eef2ff;
+                --muted: #94a3b8;
+            }
+            * { box-sizing: border-box; }
             body {
-                font-family: system-ui, sans-serif;
+                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
                 margin: 0;
+                min-height: 100vh;
                 display: grid;
                 place-items: center;
-                min-height: 100vh;
+                padding: 1.5rem;
+                background: radial-gradient(circle at top left, #1e293b, var(--bg-start) 65%);
+                color: var(--text);
             }
-            main { text-align: center; padding: 1.5rem; }
+            .glass-card {
+                max-width: 460px;
+                width: 100%;
+                text-align: center;
+                padding: 2.25rem 1.75rem;
+                border-radius: 24px;
+                background: var(--card-bg);
+                backdrop-filter: blur(18px) saturate(160%);
+                -webkit-backdrop-filter: blur(18px) saturate(160%);
+                border: 1px solid var(--card-border);
+                box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+            }
+            .badge {
+                display: inline-block;
+                padding: 0.3rem 0.85rem;
+                border-radius: 999px;
+                font-size: 0.75rem;
+                font-weight: 600;
+                letter-spacing: 0.05em;
+                color: var(--accent);
+                background: rgba(102, 227, 244, 0.12);
+                border: 1px solid rgba(102, 227, 244, 0.28);
+            }
+            h1 { margin: 1rem 0 0.6rem; font-size: 2rem; }
+            p { color: var(--muted); line-height: 1.6; margin-bottom: 1.5rem; }
+            button {
+                appearance: none;
+                border: 1px solid rgba(102, 227, 244, 0.4);
+                background: rgba(102, 227, 244, 0.16);
+                color: var(--text);
+                font-weight: 600;
+                font-size: 0.95rem;
+                padding: 0.7rem 1.4rem;
+                border-radius: 14px;
+                cursor: pointer;
+                transition: transform 0.15s ease, background 0.2s ease;
+            }
+            button:active { transform: scale(0.96); }
             """
                 .trimIndent() + "\n",
         )
@@ -234,14 +317,22 @@ object ProjectScaffolder {
             "script.js",
             """
             document.addEventListener("DOMContentLoaded", () => {
-              const el = document.getElementById("message");
-              if (el) el.textContent = "${config.name} is running!";
+              let count = 0;
+              const btn = document.getElementById("counter-btn");
+              const countEl = document.getElementById("count");
+              if (btn && countEl) {
+                btn.addEventListener("click", () => {
+                  count += 1;
+                  countEl.textContent = String(count);
+                });
+              }
+              console.log("$safeJsTitle is running!");
             });
             """
                 .trimIndent() + "\n",
         )
         root.write(".gitignore", "node_modules/\ndist/\n.env\n")
-        root.write("README.md", "# ${config.name}\n\nOpen `index.html` and use the HTML preview/runner.\n")
+        root.write("README.md", "# ${config.name}\n\nOpen `index.html` and press the Run button to launch the live preview.\n")
     }
 
     // ---- Minecraft --------------------------------------------------------------
@@ -255,11 +346,21 @@ object ProjectScaffolder {
         val modId = config.resolvedModId()
         val pkg = config.resolvedPackageName()
         val pkgPath = pkg.replace('.', '/')
-        val mainClass = config.name.replace(Regex("[^A-Za-z0-9]"), "").ifBlank { "ExampleMod" }
-        val mc = config.minecraftVersion.ifBlank { "1.21.1" }
+        val mainClass = safeJavaClassName(config.name, "ExampleMod")
+        val mc = config.minecraftVersion.ifBlank { "1.21.4" }
         val jdk = config.jdkVersion.ifBlank { "21" }
-        // Resolve real, published Fabric versions for this Minecraft version (falls back offline).
+        val javaVerEnum = gradleJavaVersionEnum(jdk)
         val pins = ModVersions.fabricPins(mc)
+        val safeName = escapeJson(config.name)
+        val safeDesc = escapeJson(config.modDescription.ifBlank { config.name })
+        val safeAuthor = escapeJson(config.author.ifBlank { "Author" })
+
+        val mappingsLine =
+            if (pins.hasYarn) {
+                "mappings \"net.fabricmc:yarn:\${project.yarn_mappings}:v2\""
+            } else {
+                "mappings loom.officialMojangMappings()"
+            }
 
         root.write(
             "gradle.properties",
@@ -303,7 +404,7 @@ object ProjectScaffolder {
             "build.gradle",
             """
             plugins {
-                id 'fabric-loom' version '1.7-SNAPSHOT'
+                id 'fabric-loom' version '1.9-SNAPSHOT'
                 id 'maven-publish'
             }
 
@@ -318,25 +419,27 @@ object ProjectScaffolder {
 
             dependencies {
                 minecraft "com.mojang:minecraft:${'$'}{project.minecraft_version}"
-                mappings "net.fabricmc:yarn:${'$'}{project.yarn_mappings}:v2"
+                $mappingsLine
                 modImplementation "net.fabricmc:fabric-loader:${'$'}{project.loader_version}"
                 modImplementation "net.fabricmc.fabric-api:fabric-api:${'$'}{project.fabric_version}"
             }
 
             processResources {
                 inputs.property "version", project.version
+                filteringCharset "UTF-8"
                 filesMatching("fabric.mod.json") {
                     expand "version": project.version
                 }
             }
 
             java {
-                sourceCompatibility = JavaVersion.VERSION_$jdk
-                targetCompatibility = JavaVersion.VERSION_$jdk
+                sourceCompatibility = JavaVersion.$javaVerEnum
+                targetCompatibility = JavaVersion.$javaVerEnum
                 withSourcesJar()
             }
 
             tasks.withType(JavaCompile).configureEach {
+                it.options.encoding = "UTF-8"
                 it.options.release = $jdk
             }
             """
@@ -350,9 +453,9 @@ object ProjectScaffolder {
               "schemaVersion": 1,
               "id": "$modId",
               "version": "${'$'}{version}",
-              "name": "${config.name}",
-              "description": "${config.modDescription.ifBlank { config.name }}",
-              "authors": ["${config.author}"],
+              "name": "$safeName",
+              "description": "$safeDesc",
+              "authors": ["$safeAuthor"],
               "license": "MIT",
               "environment": "*",
               "entrypoints": {
@@ -400,19 +503,19 @@ object ProjectScaffolder {
 
                 @Override
                 public void onInitialize() {
-                    LOGGER.info("${config.name} initialized!");
+                    LOGGER.info("$safeName initialized!");
                 }
             }
             """
                 .trimIndent() + "\n",
         )
 
-        writeGradleWrapper(root, "8.10")
+        writeGradleWrapper(root, "8.10.2")
+        root.write(".gitignore", ".gradle/\nbuild/\nout/\n.idea/\n*.iml\n")
         root.write("README.md", minecraftReadme(config, "Fabric", mc, jdk))
 
         return if (!pins.online) {
-            "Couldn't fetch the latest Fabric versions (offline?). gradle.properties uses fallback " +
-                "versions — check yarn_mappings / loader_version / fabric_version before building."
+            "Used offline Fabric defaults for Minecraft $mc — check gradle.properties if you customize dependencies."
         } else {
             null
         }
@@ -422,20 +525,44 @@ object ProjectScaffolder {
         val modId = config.resolvedModId()
         val pkg = config.resolvedPackageName()
         val pkgPath = pkg.replace('.', '/')
-        val mainClass = config.name.replace(Regex("[^A-Za-z0-9]"), "").ifBlank { "ExampleMod" }
-        val mc = config.minecraftVersion.ifBlank { "1.20.1" }
-        val jdk = config.jdkVersion.ifBlank { "17" }
-        // Resolve the real Forge build for this Minecraft version (recommended/latest), falling back
-        // to a known 1.20.1 build offline. The loader major (e.g. 47) drives the version ranges below.
-        val resolvedForge = ModVersions.forgeBuild(mc)
-        val forge = resolvedForge ?: "47.3.0"
+        val mainClass = safeJavaClassName(config.name, "ExampleMod")
+        val requestedMc = config.minecraftVersion.ifBlank { "1.20.1" }
+        val forgePin = ModVersions.resolveForgePin(requestedMc)
+        val mc = forgePin.mcVersion
+        val forge = forgePin.forgeVersion
         val forgeMajor = forge.substringBefore(".").ifBlank { "47" }
+        val forgeMajorInt = forgeMajor.toIntOrNull() ?: 47
+        val jdk =
+            if (!forgePin.exactMatch) "17"
+            else config.jdkVersion.ifBlank { if (forgeMajorInt >= 50) "21" else "17" }
         val packFormat = packFormatForMc(mc)
+        val safeName = escapeJson(config.name)
+        val safeDesc = escapeJson(config.modDescription.ifBlank { config.name })
+        val safeAuthor = escapeJson(config.author.ifBlank { "Author" })
+
+        val modConstructor =
+            if (forgeMajorInt >= 50) {
+                """
+                public $mainClass(FMLJavaModLoadingContext context) {
+                    IEventBus modEventBus = context.getModEventBus();
+                    LOGGER.info("$safeName loading");
+                }
+                """
+                    .trimIndent()
+            } else {
+                """
+                public $mainClass() {
+                    IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
+                    LOGGER.info("$safeName loading");
+                }
+                """
+                    .trimIndent()
+            }
 
         root.write(
             "gradle.properties",
             """
-            org.gradle.jvmargs=-Xmx3G
+            org.gradle.jvmargs=-Xmx2G
             org.gradle.daemon=false
 
             minecraft_version=$mc
@@ -453,10 +580,13 @@ object ProjectScaffolder {
             """
             pluginManagement {
                 repositories {
-                    gradlePluginPortal()
                     maven { url = 'https://maven.minecraftforge.net/' }
+                    gradlePluginPortal()
+                    mavenCentral()
                 }
             }
+
+            rootProject.name = '$modId'
             """
                 .trimIndent() + "\n",
         )
@@ -465,12 +595,16 @@ object ProjectScaffolder {
             "build.gradle",
             """
             plugins {
-                id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+                id 'net.minecraftforge.gradle' version '[6.0.24,6.2)'
                 id 'java'
             }
 
             version = project.mod_version
             group = project.maven_group
+
+            base {
+                archivesName = project.mod_id
+            }
 
             java {
                 toolchain.languageVersion = JavaLanguageVersion.of($jdk)
@@ -478,6 +612,7 @@ object ProjectScaffolder {
 
             minecraft {
                 mappings channel: 'official', version: project.minecraft_version
+                copyIdeResources = true
             }
 
             repositories {
@@ -487,6 +622,10 @@ object ProjectScaffolder {
 
             dependencies {
                 minecraft "net.minecraftforge:forge:${'$'}{project.minecraft_version}-${'$'}{project.forge_version}"
+            }
+
+            tasks.withType(JavaCompile).configureEach {
+                options.encoding = 'UTF-8'
             }
 
             jar {
@@ -512,10 +651,10 @@ object ProjectScaffolder {
             [[mods]]
             modId="$modId"
             version="${config.modVersion}"
-            displayName="${config.name}"
-            authors="${config.author}"
+            displayName="$safeName"
+            authors="$safeAuthor"
             description='''
-            ${config.modDescription.ifBlank { config.name }}
+            $safeDesc
             '''
 
             [[dependencies.$modId]]
@@ -540,7 +679,7 @@ object ProjectScaffolder {
             """
             {
               "pack": {
-                "description": "${config.name} resources",
+                "description": "$safeName resources",
                 "pack_format": $packFormat
               }
             }
@@ -564,22 +703,19 @@ object ProjectScaffolder {
                 public static final String MOD_ID = "$modId";
                 private static final Logger LOGGER = LogUtils.getLogger();
 
-                public $mainClass() {
-                    IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
-                    LOGGER.info("${config.name} loading");
-                }
+                $modConstructor
             }
             """
                 .trimIndent() + "\n",
         )
 
-        writeGradleWrapper(root, "8.1.1")
+        // Gradle 8.8+ supports both Java 17 and Java 21 with ForgeGradle 6.0.24+.
+        writeGradleWrapper(root, "8.8")
+        root.write(".gitignore", ".gradle/\nbuild/\nout/\n.idea/\n*.iml\n")
         root.write("README.md", minecraftReadme(config, "Forge", mc, jdk))
 
-        return if (resolvedForge == null) {
-            "Couldn't resolve a Forge build for Minecraft $mc (offline, or Forge has none for it). " +
-                "Using $forge — verify forge_version, or pick a different Minecraft version. The Forge " +
-                "template targets 1.20.x-style APIs; newer versions may need small tweaks."
+        return if (!forgePin.exactMatch) {
+            "Forge does not have a published build for Minecraft $requestedMc yet — configured for Minecraft $mc (Forge $forge) so the project builds cleanly."
         } else {
             null
         }
@@ -600,7 +736,6 @@ object ProjectScaffolder {
         """
             .trimIndent() + "\n"
 
-    /** Resource-pack format for a Minecraft version (best-effort; only affects an in-game warning). */
     private fun packFormatForMc(mc: String): Int =
         when {
             mc.startsWith("1.21.4") -> 46
@@ -614,17 +749,18 @@ object ProjectScaffolder {
             else -> 15
         }
 
-    // ---- Android Jetpack Compose (faithful Android Studio "Empty Activity" project) -----
+    // ---- Android Jetpack Compose (complete Android Studio "Empty Activity" project) -----
 
     private fun scaffoldAndroidCompose(root: File, config: ProjectConfig) {
         val pkg = config.resolvedPackageName()
         val pkgPath = pkg.replace('.', '/')
-        val jdk = config.jdkVersion.ifBlank { "17" }
-        val jvmTargetEnum = if (jdk == "8") "JVM_1_8" else "JVM_$jdk"
+        val jdk = config.jdkVersion.takeIf { it in listOf("17", "21") } ?: "21"
         val sdk = config.resolvedCompileSdk()
         val minSdk = config.resolvedMinSdk()
-        val appNoSpace = config.name.replace(Regex("[^A-Za-z0-9]"), "").ifBlank { "App" }
+        val appNoSpace = safeJavaClassName(config.name, "App")
         val styleName = "Theme.$appNoSpace"
+        val safeRootName = escapeJson(config.name)
+        val safeXmlAppName = escapeXml(config.name)
 
         // settings.gradle.kts
         root.write(
@@ -651,20 +787,20 @@ object ProjectScaffolder {
                 }
             }
 
-            rootProject.name = "${config.name}"
+            rootProject.name = "$safeRootName"
             include(":app")
             """
                 .trimIndent() + "\n",
         )
 
-        // Root build.gradle.kts (version-catalog aliases)
+        // Root build.gradle.kts — matches Xed-EditorPRO's own AGP 9.2.1 setup (AGP 9 has built-in Kotlin
+        // support and must NOT apply org.jetbrains.kotlin.android separately).
         root.write(
             "build.gradle.kts",
             """
             // Top-level build file where you can add configuration options common to all sub-projects/modules.
             plugins {
                 alias(libs.plugins.android.application) apply false
-                alias(libs.plugins.kotlin.android) apply false
                 alias(libs.plugins.kotlin.compose) apply false
             }
             """
@@ -704,7 +840,6 @@ object ProjectScaffolder {
 
             [plugins]
             android-application = { id = "com.android.application", version.ref = "agp" }
-            kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
             kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
             """
                 .trimIndent() + "\n",
@@ -728,11 +863,8 @@ object ProjectScaffolder {
         root.write(
             "app/build.gradle.kts",
             """
-            import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-
             plugins {
                 alias(libs.plugins.android.application)
-                alias(libs.plugins.kotlin.android)
                 alias(libs.plugins.kotlin.compose)
             }
 
@@ -768,7 +900,7 @@ object ProjectScaffolder {
             }
 
             kotlin {
-                compilerOptions { jvmTarget = JvmTarget.$jvmTargetEnum }
+                jvmToolchain($jdk)
             }
 
             dependencies {
@@ -830,7 +962,102 @@ object ProjectScaffolder {
                 .trimIndent() + "\n",
         )
 
-        // MainActivity.kt — the only Kotlin file in this empty project (self-contained, no theme pkg).
+        // Complete ui.theme package (Color.kt, Type.kt, Theme.kt)
+        root.write(
+            "app/src/main/java/$pkgPath/ui/theme/Color.kt",
+            """
+            package $pkg.ui.theme
+
+            import androidx.compose.ui.graphics.Color
+
+            val PrimaryDark = Color(0xFFADC6FF)
+            val SecondaryDark = Color(0xFFBCC6E2)
+            val TertiaryDark = Color(0xFFDCB9E8)
+
+            val PrimaryLight = Color(0xFF3B5BA9)
+            val SecondaryLight = Color(0xFF535E78)
+            val TertiaryLight = Color(0xFF6F527A)
+            """
+                .trimIndent() + "\n",
+        )
+
+        root.write(
+            "app/src/main/java/$pkgPath/ui/theme/Type.kt",
+            """
+            package $pkg.ui.theme
+
+            import androidx.compose.material3.Typography
+            import androidx.compose.ui.text.TextStyle
+            import androidx.compose.ui.text.font.FontFamily
+            import androidx.compose.ui.text.font.FontWeight
+            import androidx.compose.ui.unit.sp
+
+            val Typography = Typography(
+                bodyLarge = TextStyle(
+                    fontFamily = FontFamily.Default,
+                    fontWeight = FontWeight.Normal,
+                    fontSize = 16.sp,
+                    lineHeight = 24.sp,
+                    letterSpacing = 0.5.sp,
+                ),
+            )
+            """
+                .trimIndent() + "\n",
+        )
+
+        root.write(
+            "app/src/main/java/$pkgPath/ui/theme/Theme.kt",
+            """
+            package $pkg.ui.theme
+
+            import android.os.Build
+            import androidx.compose.foundation.isSystemInDarkTheme
+            import androidx.compose.material3.MaterialTheme
+            import androidx.compose.material3.darkColorScheme
+            import androidx.compose.material3.dynamicDarkColorScheme
+            import androidx.compose.material3.dynamicLightColorScheme
+            import androidx.compose.material3.lightColorScheme
+            import androidx.compose.runtime.Composable
+            import androidx.compose.ui.platform.LocalContext
+
+            private val DarkColorScheme = darkColorScheme(
+                primary = PrimaryDark,
+                secondary = SecondaryDark,
+                tertiary = TertiaryDark,
+            )
+
+            private val LightColorScheme = lightColorScheme(
+                primary = PrimaryLight,
+                secondary = SecondaryLight,
+                tertiary = TertiaryLight,
+            )
+
+            @Composable
+            fun ${appNoSpace}Theme(
+                darkTheme: Boolean = isSystemInDarkTheme(),
+                dynamicColor: Boolean = true,
+                content: @Composable () -> Unit,
+            ) {
+                val colorScheme = when {
+                    dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+                        val context = LocalContext.current
+                        if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+                    }
+                    darkTheme -> DarkColorScheme
+                    else -> LightColorScheme
+                }
+
+                MaterialTheme(
+                    colorScheme = colorScheme,
+                    typography = Typography,
+                    content = content,
+                )
+            }
+            """
+                .trimIndent() + "\n",
+        )
+
+        // MainActivity.kt
         root.write(
             "app/src/main/java/$pkgPath/MainActivity.kt",
             """
@@ -840,24 +1067,36 @@ object ProjectScaffolder {
             import androidx.activity.ComponentActivity
             import androidx.activity.compose.setContent
             import androidx.activity.enableEdgeToEdge
+            import androidx.compose.foundation.layout.Arrangement
+            import androidx.compose.foundation.layout.Column
+            import androidx.compose.foundation.layout.Spacer
             import androidx.compose.foundation.layout.fillMaxSize
+            import androidx.compose.foundation.layout.height
             import androidx.compose.foundation.layout.padding
+            import androidx.compose.material3.Button
             import androidx.compose.material3.MaterialTheme
             import androidx.compose.material3.Scaffold
             import androidx.compose.material3.Text
             import androidx.compose.runtime.Composable
+            import androidx.compose.runtime.getValue
+            import androidx.compose.runtime.mutableIntStateOf
+            import androidx.compose.runtime.remember
+            import androidx.compose.runtime.setValue
+            import androidx.compose.ui.Alignment
             import androidx.compose.ui.Modifier
             import androidx.compose.ui.tooling.preview.Preview
+            import androidx.compose.ui.unit.dp
+            import $pkg.ui.theme.${appNoSpace}Theme
 
             class MainActivity : ComponentActivity() {
                 override fun onCreate(savedInstanceState: Bundle?) {
                     super.onCreate(savedInstanceState)
                     enableEdgeToEdge()
                     setContent {
-                        MaterialTheme {
+                        ${appNoSpace}Theme {
                             Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                                 Greeting(
-                                    name = "Android",
+                                    name = "$safeRootName",
                                     modifier = Modifier.padding(innerPadding),
                                 )
                             }
@@ -868,19 +1107,33 @@ object ProjectScaffolder {
 
             @Composable
             fun Greeting(name: String, modifier: Modifier = Modifier) {
-                Text(text = "Hello ${'$'}name!", modifier = modifier)
+                var count by remember { mutableIntStateOf(0) }
+                Column(
+                    modifier = modifier.fillMaxSize().padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = "Hello from ${'$'}name!",
+                        style = MaterialTheme.typography.headlineMedium,
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(onClick = { count++ }) {
+                        Text(text = "Clicked ${'$'}count times")
+                    }
+                }
             }
 
             @Preview(showBackground = true)
             @Composable
             fun GreetingPreview() {
-                MaterialTheme { Greeting("Android") }
+                ${appNoSpace}Theme { Greeting("Android") }
             }
             """
                 .trimIndent() + "\n",
         )
 
-        // Example unit + instrumented tests (matches Android Studio's Empty Activity template).
+        // Example unit + instrumented tests
         root.write(
             "app/src/test/java/$pkgPath/ExampleUnitTest.kt",
             """
@@ -929,7 +1182,7 @@ object ProjectScaffolder {
             """
             <?xml version="1.0" encoding="utf-8"?>
             <resources>
-                <string name="app_name">${config.name}</string>
+                <string name="app_name">$safeXmlAppName</string>
             </resources>
             """
                 .trimIndent() + "\n",
@@ -986,7 +1239,7 @@ object ProjectScaffolder {
                 .trimIndent() + "\n",
         )
 
-        // Launcher icons (vector adaptive + legacy fallback — fully buildable without binaries)
+        // Launcher icons (vector adaptive + legacy fallback)
         root.write(
             "app/src/main/res/drawable/ic_launcher_background.xml",
             """
@@ -1037,7 +1290,6 @@ object ProjectScaffolder {
             """
                 .trimIndent() + "\n",
         )
-        // Legacy (<26) fallback so the icon resolves on all minSdk-24 devices without binary assets.
         val legacyIcon =
             """
             <?xml version="1.0" encoding="utf-8"?>
@@ -1050,7 +1302,7 @@ object ProjectScaffolder {
         root.write("app/src/main/res/mipmap/ic_launcher.xml", legacyIcon)
         root.write("app/src/main/res/mipmap/ic_launcher_round.xml", legacyIcon)
 
-        // Root .gitignore (Android Studio default)
+        // Root .gitignore
         root.write(
             ".gitignore",
             """
@@ -1115,7 +1367,6 @@ object ProjectScaffolder {
                 .trimIndent() + "\n",
         )
 
-        // Copy the bundled wrapper jar + launcher scripts so `./gradlew` works out of the box.
         copyAsset("templates/gradle-wrapper.jar", File(root, "gradle/wrapper/gradle-wrapper.jar"))
         val gradlew = File(root, "gradlew")
         copyAsset("templates/gradlew", gradlew)
@@ -1123,7 +1374,6 @@ object ProjectScaffolder {
         runCatching { gradlew.setExecutable(true, false) }
     }
 
-    /** Copies a bundled asset to [target], creating parent dirs. No-op (logged) if the asset is missing. */
     private fun copyAsset(assetPath: String, target: File) {
         runCatching {
             target.parentFile?.mkdirs()

@@ -30,23 +30,20 @@ import com.rk.resources.drawables
 import com.rk.settings.Preference
 
 /**
- * The "What's new" content shown once on launch after an update. Bump [VERSION] and refresh
- * [highlights] each release; the per-version key means it re-appears for the new version.
+ * The "What's new" content shown once on launch after an update.
  */
 object ChangelogInfo {
     const val VERSION = "4.2.1"
 
     val highlights =
         listOf(
-            "Redesigned launch screen with a loading progress bar and smoother hand-off.",
-            "Full redesign of the Dependency Manager and IDE Configuration screens.",
-            "Per-project Gradle options: build type, log level and extra flags (--stacktrace, …).",
-            "Create Project revamped — a bottom sheet with icon-based templates and a live package name.",
-            "New \"Projects & Repositories\" browser in the + menu, with type, size and dates.",
-            "Real, buildable Fabric / Forge / Android templates with auto-resolved versions.",
-            "Android SDK picker with version names, automatic Gradle sync, and a first-build heads-up.",
-            "Import files straight into a folder from the file tree.",
-            "The Terminal now opens in the selected project folder.",
+            "New Glassmorphic Bottom Navigation Bar with backdrop blur across the workspace and drawer.",
+            "Full-width Explorer & Git drawer with a top glass Project Switcher header (no more cramped left rail).",
+            "Obsidian Glass (PRO) theme + upgraded BlueBerry M3 surface containers and glass pill editor tabs.",
+            "Redesigned Liquid-Glass launch screen with ambient glow and 60fps hand-off.",
+            "Fixed all project templates: Android Compose (AGP 9 built-in Kotlin + ui.theme), Fabric, Forge (Gradle 8.8 + Java 21), and Static Web.",
+            "Auto-detection & installation of required JDK versions (8/11/17/21) and native ARM64 aapt2 in the runner.",
+            "Full redesign of the Dependency Manager, IDE Configuration, and Git workspace with segmented glass controls.",
         )
 
     private fun seenKey() = "changelog_seen_$VERSION"
@@ -56,10 +53,6 @@ object ChangelogInfo {
     fun markSeen() = Preference.setBoolean(seenKey(), true)
 }
 
-/**
- * One-time changelog dialog. Re-appears on every launch until the user ticks "Never show again for
- * this version" and dismisses it.
- */
 @Composable
 fun ChangelogDialog(onClose: () -> Unit) {
     var dontShowAgain by remember { mutableStateOf(false) }
@@ -84,7 +77,10 @@ fun ChangelogDialog(onClose: () -> Unit) {
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth().clickable { dontShowAgain = !dontShowAgain }.padding(vertical = 6.dp),
+                    modifier =
+                        Modifier.fillMaxWidth()
+                            .clickable { dontShowAgain = !dontShowAgain }
+                            .padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Checkbox(checked = dontShowAgain, onCheckedChange = { dontShowAgain = it })

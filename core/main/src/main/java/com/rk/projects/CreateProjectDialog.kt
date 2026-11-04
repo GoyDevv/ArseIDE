@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
@@ -44,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.rk.components.GlassSurface
 import com.rk.exec.isTerminalInstalled
 import com.rk.resources.drawables
 import com.rk.resources.strings
@@ -51,14 +54,6 @@ import java.io.File
 
 /**
  * Bottom sheet that gathers everything needed to scaffold a project and emits a [ProjectConfig].
- *
- * All projects are created inside the terminal sandbox home (exec-capable), so the toolchain
- * (gradle/npm/python) can actually run from where the project lives. There is no longer a
- * Documents/XED option: Android shared storage is mounted noexec and ignores Unix permissions, so
- * nothing buildable could run there anyway.
- *
- * @param projectsDir the terminal sandbox home in which the project folder is created.
- * @param onCreate invoked with the validated config when the user taps Create.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,7 +70,7 @@ fun CreateProjectDialog(projectsDir: File, onDismiss: () -> Unit, onCreate: (Pro
     var minecraftVersion by remember { mutableStateOf("") }
     var jdkVersion by remember { mutableStateOf("21") }
     var jdkEdited by remember { mutableStateOf(false) }
-    var sdkVersion by remember { mutableStateOf("") }
+    var sdkVersion by remember { mutableStateOf("35") }
     var initGit by remember { mutableStateOf(false) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -100,16 +95,18 @@ fun CreateProjectDialog(projectsDir: File, onDismiss: () -> Unit, onCreate: (Pro
     var loadingSdk by remember { mutableStateOf(false) }
     LaunchedEffect(template) {
         if (template == ProjectTemplate.ANDROID_COMPOSE) {
-            if (sdkVersion.isBlank()) sdkVersion = sdkVersions.first()
+            if (jdkVersion !in listOf("17", "21")) jdkVersion = "21"
+            if (sdkVersion.isBlank()) sdkVersion = "35"
             loadingSdk = true
             sdkVersions = AndroidSdkVersions.fetchApiLevels()
-            if (sdkVersion !in sdkVersions) sdkVersion = sdkVersions.first()
+            if (sdkVersion !in sdkVersions) {
+                sdkVersion = if ("35" in sdkVersions) "35" else sdkVersions.first()
+            }
             loadingSdk = false
         }
     }
 
-    // Real-time package autofill: keep the Package field populated with the derived id as the user
-    // types the name/author, until they manually edit it (then we leave their value alone).
+    // Real-time package autofill
     LaunchedEffect(trimmedName, author, template) {
         if (template.showsPackageName && !packageEdited) {
             packageName =
@@ -124,15 +121,14 @@ fun CreateProjectDialog(projectsDir: File, onDismiss: () -> Unit, onCreate: (Pro
         }
     }
 
-    // Couple the JDK to the Minecraft version (1.20.5+/1.21+ need Java 21, 1.17–1.20.4 Java 17, older
-    // Java 8) until the user overrides it manually.
+    // Couple the JDK to the Minecraft version until the user overrides it manually.
     LaunchedEffect(minecraftVersion, template) {
         if (template == ProjectTemplate.MINECRAFT_MOD && !jdkEdited && minecraftVersion.isNotBlank()) {
             jdkVersion = recommendedJdkForMc(minecraftVersion)
         }
     }
 
-    // Live detection of the toolchain the chosen template needs (Python/Node/JDK).
+    // Live detection of the toolchain the chosen template needs (Python/Node/JDK/Android SDK).
     var toolState by remember { mutableStateOf<ToolState>(ToolState.None) }
     LaunchedEffect(template, jdkVersion) {
         val cfg = ProjectConfig(name = "check", template = template, parentDir = parentDir, jdkVersion = jdkVersion)
@@ -168,31 +164,38 @@ fun CreateProjectDialog(projectsDir: File, onDismiss: () -> Unit, onCreate: (Pro
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             // ---- Header -------------------------------------------------------------------------
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(44.dp),
-                ) {
-                    Icon(
-                        painter = painterResource(template.iconRes),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(10.dp),
-                    )
-                }
-                Spacer(Modifier.width(14.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(strings.create_project),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = stringResource(strings.create_project_desc),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            GlassSurface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                shadowElevation = 4.dp,
+                contentPadding = PaddingValues(16.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            painter = painterResource(template.iconRes),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(11.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(strings.create_project),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = stringResource(strings.create_project_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
 
@@ -252,7 +255,12 @@ fun CreateProjectDialog(projectsDir: File, onDismiss: () -> Unit, onCreate: (Pro
                         onValueChange = { modId = it },
                         singleLine = true,
                         label = { Text(stringResource(strings.mod_id)) },
-                        placeholder = { Text(trimmedName.lowercase().replace(Regex("[^a-z0-9_]"), "_")) },
+                        placeholder = {
+                            Text(
+                                ProjectConfig(name = trimmedName, template = template, parentDir = parentDir)
+                                    .resolvedModId()
+                            )
+                        },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(
@@ -300,10 +308,13 @@ fun CreateProjectDialog(projectsDir: File, onDismiss: () -> Unit, onCreate: (Pro
                         leadingIcon = { Icon(painterResource(drawables.person), contentDescription = null) },
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    val jdkOptions =
+                        if (template == ProjectTemplate.ANDROID_COMPOSE) listOf("17", "21")
+                        else listOf("8", "11", "17", "21")
                     LabeledDropdown(
                         label = stringResource(strings.jdk_version),
-                        selected = jdkVersion,
-                        options = listOf("8", "11", "17", "21"),
+                        selected = if (jdkVersion in jdkOptions) jdkVersion else jdkOptions.last(),
+                        options = jdkOptions,
                         onSelect = {
                             jdkVersion = it
                             jdkEdited = true
@@ -325,9 +336,13 @@ fun CreateProjectDialog(projectsDir: File, onDismiss: () -> Unit, onCreate: (Pro
             // ---- Options ------------------------------------------------------------------------
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 FormSectionHeader(icon = drawables.settings, title = "Options")
-                Surface(shape = MaterialTheme.shapes.large, tonalElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
+                GlassSurface(
+                    shape = RoundedCornerShape(16.dp),
+                    shadowElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -350,11 +365,23 @@ fun CreateProjectDialog(projectsDir: File, onDismiss: () -> Unit, onCreate: (Pro
             when (val state = toolState) {
                 ToolState.None -> {}
                 ToolState.Checking ->
-                    ToolStatusRow(drawables.info, stringResource(strings.tools_checking), MaterialTheme.colorScheme.onSurfaceVariant)
+                    ToolStatusRow(
+                        drawables.info,
+                        stringResource(strings.tools_checking),
+                        MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 ToolState.Ready ->
-                    ToolStatusRow(drawables.info, stringResource(strings.tools_installed), MaterialTheme.colorScheme.primary)
+                    ToolStatusRow(
+                        drawables.info,
+                        stringResource(strings.tools_installed),
+                        MaterialTheme.colorScheme.primary,
+                    )
                 ToolState.NoTerminal ->
-                    ToolStatusRow(drawables.cloud_off, stringResource(strings.tools_no_terminal), MaterialTheme.colorScheme.error)
+                    ToolStatusRow(
+                        drawables.cloud_off,
+                        stringResource(strings.tools_no_terminal),
+                        MaterialTheme.colorScheme.error,
+                    )
                 is ToolState.Missing ->
                     ToolStatusRow(
                         drawables.download,
@@ -365,13 +392,17 @@ fun CreateProjectDialog(projectsDir: File, onDismiss: () -> Unit, onCreate: (Pro
             ToolStatusRow(
                 icon = drawables.folder,
                 text =
-                    stringResource(strings.project_location) + ": " +
+                    stringResource(strings.project_location) +
+                        ": " +
                         File(parentDir, trimmedName.ifBlank { "<name>" }).absolutePath,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             // ---- Actions ------------------------------------------------------------------------
-            Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(50.dp)) {
                     Text(stringResource(strings.cancel))
                 }
@@ -391,7 +422,8 @@ fun CreateProjectDialog(projectsDir: File, onDismiss: () -> Unit, onCreate: (Pro
                                 modVersion = modVersion.trim().ifBlank { "1.0.0" },
                                 minecraftVersion = minecraftVersion.trim(),
                                 jdkVersion = jdkVersion.trim().ifBlank { "21" },
-                                sdkVersion = if (template == ProjectTemplate.ANDROID_COMPOSE) sdkVersion.trim() else "",
+                                sdkVersion =
+                                    if (template == ProjectTemplate.ANDROID_COMPOSE) sdkVersion.trim() else "",
                                 initGit = initGit,
                             )
                         )
@@ -407,15 +439,17 @@ fun CreateProjectDialog(projectsDir: File, onDismiss: () -> Unit, onCreate: (Pro
     }
 }
 
-/** A compact, horizontally-scrolling template tile: icon over name, highlighted when selected. */
 @Composable
 private fun TemplateCard(template: ProjectTemplate, selected: Boolean, onClick: () -> Unit) {
     Surface(
-        shape = MaterialTheme.shapes.large,
+        shape = RoundedCornerShape(18.dp),
         color =
-            if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-        border = if (selected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
-        modifier = Modifier.width(104.dp).clickable(onClick = onClick),
+            if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)
+            else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.75f),
+        border =
+            if (selected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+            else BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+        modifier = Modifier.width(108.dp).clickable(onClick = onClick),
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 14.dp),
@@ -425,24 +459,28 @@ private fun TemplateCard(template: ProjectTemplate, selected: Boolean, onClick: 
             Icon(
                 painter = painterResource(template.iconRes),
                 contentDescription = null,
-                tint = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint =
+                    if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(30.dp),
             )
             Spacer(Modifier.height(8.dp))
             Text(
                 text = template.displayName,
                 style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
                 minLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                color =
+                    if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onSurface,
             )
         }
     }
 }
 
-/** A small section header (leading icon + primary-coloured title) used above form fields. */
 @Composable
 private fun FormSectionHeader(icon: Int, title: String) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -510,7 +548,6 @@ private fun LabeledDropdown(label: String, selected: String, options: List<Strin
     }
 }
 
-/** UI state for the live toolchain check shown in the create sheet. */
 private sealed interface ToolState {
     data object None : ToolState
 
@@ -523,12 +560,9 @@ private sealed interface ToolState {
     data class Missing(val names: List<String>) : ToolState
 }
 
-/** Recommended JDK for a Minecraft version: new year-based versions (26.x+) and 1.20.5+/1.21+ → 21,
- * 1.17–1.20.4 → 17, older → 8. */
 private fun recommendedJdkForMc(mc: String): String {
     val parts = mc.split(".")
     val first = parts.getOrNull(0)?.toIntOrNull() ?: 1
-    // New year-based scheme (2026's "26.x" and beyond) uses Java 21.
     if (first >= 26) return "21"
     val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
     val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0

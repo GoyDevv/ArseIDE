@@ -64,8 +64,12 @@ ARGS="$ARGS -L"
 chmod -R +x $LOCAL/bin
 
 if [ $# -gt 0 ]; then
-    $PROOT $ARGS /bin/bash --rcfile $LOCAL/bin/init -i -c "$*"
+    CMD=""
+    for arg in "$@"; do
+        escaped=$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")
+        CMD="$CMD '$escaped'"
+    done
+    $PROOT $ARGS /bin/bash --rcfile $LOCAL/bin/init -i -c "$CMD"
 else
     $PROOT $ARGS /bin/bash --rcfile $LOCAL/bin/init -i
 fi
-

@@ -22,6 +22,7 @@ import java.lang.ref.WeakReference
 import java.net.BindException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -59,7 +60,9 @@ class MDViewer : WebActivity() {
                                 webViewRef = WeakReference(webView)
 
                                 lifecycleScope.launch(Dispatchers.Default) {
-                                    val html = fetchMarkdownFile("http://localhost:$port/${file.getName()}")
+                                    val encoded =
+                                        URLEncoder.encode(file.getName(), "UTF-8").replace("+", "%20")
+                                    val html = fetchMarkdownFile("http://localhost:$port/$encoded")
                                     withContext(Dispatchers.Main) {
                                         webView.loadDataWithBaseURL(
                                             "http://localhost:$port",

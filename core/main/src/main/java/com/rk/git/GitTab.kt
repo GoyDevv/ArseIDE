@@ -53,8 +53,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TriStateCheckbox
@@ -68,6 +66,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -76,6 +75,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
@@ -83,9 +83,10 @@ import com.rk.activities.main.MainActivity
 import com.rk.activities.main.fileTreeViewModel
 import com.rk.activities.settings.SettingsActivity
 import com.rk.activities.settings.SettingsRoutes
+import com.rk.components.GlassSegmentedControl
+import com.rk.components.GlassSurface
 import com.rk.components.SingleInputDialog
 import com.rk.components.compose.utils.addIf
-import com.rk.components.getDrawerWidth
 import com.rk.drawer.DrawerTab
 import com.rk.file.toFileWrapper
 import com.rk.filetree.FileNameIcon
@@ -108,7 +109,7 @@ import org.eclipse.jgit.storage.file.FileRepositoryBuilder
 /** Convert a git remote URL (ssh or https) to its https web base, e.g. https://github.com/owner/repo. */
 private fun remoteToWebUrl(remote: String?): String? {
     if (remote.isNullOrBlank()) return null
-    var u = remote.trim().removeSuffix(".git")
+    val u = remote.trim().removeSuffix(".git")
     return when {
         u.startsWith("git@") -> "https://" + u.removePrefix("git@").replaceFirst(":", "/")
         u.startsWith("http") -> u
@@ -160,7 +161,7 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
         Column(modifier = modifier.fillMaxSize()) {
             // --- Top bar: branch selector + pull/fetch/push + overflow ---
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(modifier = Modifier.weight(1f)) {
@@ -173,6 +174,7 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 softWrap = false,
+                                fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.weight(1f, fill = false),
                             )
                             Spacer(Modifier.size(4.dp))
@@ -212,7 +214,12 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                 }
 
                 IconButton(
-                    onClick = { scope.launch { viewModel.pull().join(); refreshEditors() } },
+                    onClick = {
+                        scope.launch {
+                            viewModel.pull().join()
+                            refreshEditors()
+                        }
+                    },
                     enabled = !viewModel.isLoading,
                 ) {
                     Icon(painterResource(drawables.pull), contentDescription = stringResource(strings.pull))
@@ -256,21 +263,18 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                 }
             }
 
-            Box(modifier = Modifier.fillMaxWidth().height(4.dp)) {
-                if (viewModel.isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxSize())
-                else HorizontalDivider()
+            if (viewModel.isLoading) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(3.dp))
             }
 
-            // --- Section tabs ---
-            TabRow(selectedTabIndex = section) {
-                listOf("Code", "Diff", "Actions").forEachIndexed { index, title ->
-                    Tab(
-                        selected = section == index,
-                        onClick = { section = index },
-                        text = { Text(title, maxLines = 1) },
-                    )
-                }
-            }
+            // --- Glassmorphic Segmented Section Tabs ---
+            GlassSegmentedControl(
+                options = listOf("Code", "Diff", "Actions"),
+                selectedIndex = section,
+                onSelect = { section = it },
+                badges = if (gitChanges.isNotEmpty()) mapOf(0 to gitChanges.size) else emptyMap(),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            )
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 AnimatedContent(
@@ -426,7 +430,9 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                 onDismissRequest = { viewModel.discardTarget = null },
                 title = { Text(stringResource(strings.discard_changes)) },
                 text = {
-                    Text(stringResource(strings.discard_changes_message) + "\n\n" + change.path.substringAfterLast("/"))
+                    Text(
+                        stringResource(strings.discard_changes_message) + "\n\n" + change.path.substringAfterLast("/")
+                    )
                 },
                 confirmButton = {
                     TextButton(onClick = { viewModel.discardChanges(change) }) {
@@ -441,7 +447,7 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // CODE section: change lists + commit box
+    // CODE section: change lists + glass commit card
     // ---------------------------------------------------------------------------------------------
     @Composable
     private fun CodeSection(
@@ -459,20 +465,33 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
         var untrackedExpanded by remember { mutableStateOf(true) }
         var conflictsExpanded by remember { mutableStateOf(true) }
 
-        val changes = gitChanges.filter { it.type == ChangeType.ADDED || it.type == ChangeType.MODIFIED || it.type == ChangeType.DELETED }
+        val changes =
+            gitChanges.filter {
+                it.type == ChangeType.ADDED || it.type == ChangeType.MODIFIED || it.type == ChangeType.DELETED
+            }
         val conflicts = gitChanges.filter { it.type == ChangeType.CONFLICTING }
         val untracked = gitChanges.filter { it.type == ChangeType.UNTRACKED }
 
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().padding(bottom = 82.dp)) {
             if (gitChanges.isNotEmpty()) {
                 LazyColumn(
                     modifier = Modifier.weight(1f, fill = true),
                     state = rememberLazyListState(),
-                    contentPadding = PaddingValues(top = 8.dp),
+                    contentPadding = PaddingValues(top = 6.dp, bottom = 8.dp),
                 ) {
-                    item { ConflictsList(conflicts, conflictsExpanded, onOpenFileDiff) { conflictsExpanded = !conflictsExpanded } }
-                    item { ChangesList(changes, changesExpanded, onOpenFileDiff) { changesExpanded = !changesExpanded } }
-                    item { UntrackedList(untracked, untrackedExpanded, onOpenFileDiff) { untrackedExpanded = !untrackedExpanded } }
+                    item {
+                        ConflictsList(conflicts, conflictsExpanded, onOpenFileDiff) {
+                            conflictsExpanded = !conflictsExpanded
+                        }
+                    }
+                    item {
+                        ChangesList(changes, changesExpanded, onOpenFileDiff) { changesExpanded = !changesExpanded }
+                    }
+                    item {
+                        UntrackedList(untracked, untrackedExpanded, onOpenFileDiff) {
+                            untrackedExpanded = !untrackedExpanded
+                        }
+                    }
                 }
             } else {
                 Column(
@@ -497,70 +516,99 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                 }
             }
 
-            HorizontalDivider()
-
-            Row(
-                modifier =
-                    Modifier.fillMaxWidth()
-                        .height(40.dp)
-                        .toggleable(
-                            value = amend,
-                            enabled = !viewModel.isLoading,
-                            onValueChange = { viewModel.toggleAmend(it) },
-                            role = Role.Checkbox,
-                            indication = null,
-                            interactionSource = interactionSource,
-                        )
-                        .padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            GlassSurface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
+                shape = RoundedCornerShape(18.dp),
+                shadowElevation = 6.dp,
+                contentPadding = PaddingValues(10.dp),
             ) {
-                Checkbox(checked = amend, enabled = !viewModel.isLoading, interactionSource = interactionSource, onCheckedChange = null)
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(strings.amend))
-            }
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier =
+                            Modifier.fillMaxWidth()
+                                .height(34.dp)
+                                .toggleable(
+                                    value = amend,
+                                    enabled = !viewModel.isLoading,
+                                    onValueChange = { viewModel.toggleAmend(it) },
+                                    role = Role.Checkbox,
+                                    indication = null,
+                                    interactionSource = interactionSource,
+                                )
+                                .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = amend,
+                            enabled = !viewModel.isLoading,
+                            interactionSource = interactionSource,
+                            onCheckedChange = null,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(strings.amend), style = MaterialTheme.typography.labelLarge)
+                    }
 
-            OutlinedTextField(
-                enabled = !viewModel.isLoading,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                value = commitTitle,
-                onValueChange = { viewModel.changeCommitMessage(it) },
-                singleLine = true,
-                label = { Text("Commit title") },
-                placeholder = { Text(stringResource(strings.commit_message)) },
-            )
-            Spacer(Modifier.height(6.dp))
-            OutlinedTextField(
-                enabled = !viewModel.isLoading,
-                modifier = Modifier.fillMaxWidth().height(96.dp).padding(horizontal = 8.dp),
-                value = commitDescription,
-                onValueChange = { viewModel.changeCommitDescription(it) },
-                label = { Text("Description (optional)") },
-            )
-
-            Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-                Button(
-                    enabled = !viewModel.isLoading && commitTitle.isNotBlank() && hasCheckedChanges,
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = onCommit,
-                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
-                ) {
-                    Icon(painterResource(drawables.commit), contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                    Text(stringResource(if (amend) strings.amend_commit else strings.commit), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                OutlinedButton(
-                    enabled = !viewModel.isLoading && commitTitle.isNotBlank() && hasCheckedChanges,
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = onCommitAndPush,
-                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
-                ) {
-                    Icon(painterResource(drawables.push), contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                    Text(
-                        stringResource(if (amend) strings.amend_commit_and_push else strings.commit_and_push),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    OutlinedTextField(
+                        enabled = !viewModel.isLoading,
+                        modifier = Modifier.fillMaxWidth(),
+                        value = commitTitle,
+                        onValueChange = { viewModel.changeCommitMessage(it) },
+                        singleLine = true,
+                        label = { Text("Commit title") },
+                        placeholder = { Text(stringResource(strings.commit_message)) },
                     )
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        enabled = !viewModel.isLoading,
+                        modifier = Modifier.fillMaxWidth().height(76.dp),
+                        value = commitDescription,
+                        onValueChange = { viewModel.changeCommitDescription(it) },
+                        label = { Text("Description (optional)") },
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Button(
+                            enabled = !viewModel.isLoading && commitTitle.isNotBlank() && hasCheckedChanges,
+                            modifier = Modifier.weight(1f),
+                            onClick = onCommit,
+                            contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                        ) {
+                            Icon(
+                                painterResource(drawables.commit),
+                                contentDescription = null,
+                                modifier = Modifier.size(ButtonDefaults.IconSize),
+                            )
+                            Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                            Text(
+                                stringResource(if (amend) strings.amend_commit else strings.commit),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        OutlinedButton(
+                            enabled = !viewModel.isLoading && commitTitle.isNotBlank() && hasCheckedChanges,
+                            modifier = Modifier.weight(1f),
+                            onClick = onCommitAndPush,
+                            contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                        ) {
+                            Icon(
+                                painterResource(drawables.push),
+                                contentDescription = null,
+                                modifier = Modifier.size(ButtonDefaults.IconSize),
+                            )
+                            Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                            Text(
+                                stringResource(if (amend) strings.amend_commit_and_push else strings.commit_and_push),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -573,7 +621,7 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
     private fun DiffSection(gitChanges: List<GitChange>, expandedPaths: Set<String>, onToggle: (GitChange) -> Unit) {
         if (gitChanges.isEmpty()) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(24.dp),
+                modifier = Modifier.fillMaxSize().padding(24.dp).padding(bottom = 82.dp),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -581,10 +629,17 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
             }
             return
         }
-        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(8.dp)) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 92.dp),
+        ) {
             items(gitChanges.size) { i ->
                 val change = gitChanges[i]
-                DiffCard(change = change, expanded = expandedPaths.contains(change.path), onToggle = { onToggle(change) })
+                DiffCard(
+                    change = change,
+                    expanded = expandedPaths.contains(change.path),
+                    onToggle = { onToggle(change) },
+                )
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -596,15 +651,14 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
         val (added, removed) = remember(diff) { diffStats(diff) }
         val rotation by animateFloatAsState(targetValue = if (expanded) 90f else 0f, label = "diffRotate")
 
-        Surface(
-            shape = RoundedCornerShape(10.dp),
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            tonalElevation = 1.dp,
+        GlassSurface(
+            shape = RoundedCornerShape(14.dp),
+            shadowElevation = 2.dp,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onToggle).padding(10.dp),
+                    modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onToggle).padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
@@ -615,10 +669,11 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                     )
                     Spacer(Modifier.width(6.dp))
                     FileNameIcon(fileName = change.path.substringAfterLast("/"), isDirectory = false)
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(
                         change.path.substringAfterLast("/"),
                         style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
                         color = getGitColor(change.type),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -674,8 +729,8 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                 val color =
                     when {
                         line.startsWith("+++") || line.startsWith("---") -> scheme.onSurfaceVariant
-                        line.startsWith("+") -> Color(0xFF2E7D32)
-                        line.startsWith("-") -> Color(0xFFC62828)
+                        line.startsWith("+") -> Color(0xFF4CAF50)
+                        line.startsWith("-") -> Color(0xFFE53935)
                         line.startsWith("@@") -> scheme.primary
                         line.startsWith("diff ") || line.startsWith("index ") -> scheme.onSurfaceVariant
                         else -> scheme.onSurface
@@ -694,7 +749,7 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // ACTIONS section (CI runs). Full API-backed live logs are the next stage; this links out.
+    // ACTIONS section (CI runs)
     // ---------------------------------------------------------------------------------------------
     @Composable
     private fun ActionsSection(context: android.content.Context) {
@@ -721,60 +776,112 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
 
         if (!GitHubCli.hasToken() || ownerRepo == null) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(24.dp),
+                modifier = Modifier.fillMaxSize().padding(24.dp).padding(bottom = 82.dp),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Icon(painterResource(drawables.run), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp))
+                Icon(
+                    painterResource(drawables.run),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(40.dp),
+                )
                 Spacer(Modifier.height(12.dp))
                 Text("CI Actions", style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    if (ownerRepo == null) "This works with a GitHub remote. Set the origin to a github.com repository."
-                    else "Add your GitHub token in Git settings (the password field = a personal access token) to see workflow runs.",
+                    if (ownerRepo == null) {
+                        "This works with a GitHub remote. Set the origin to a github.com repository."
+                    } else {
+                        "Add your GitHub token in Git settings (the password field = a personal access token) to see workflow runs."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(12.dp))
                 if (web != null) {
-                    Button(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, "$web/actions".toUri())) } }) {
+                    Button(
+                        onClick = {
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, "$web/actions".toUri())) }
+                        }
+                    ) {
                         Text("Open Actions on GitHub")
                     }
                 }
-                TextButton(onClick = { context.startActivity(Intent(context, SettingsActivity::class.java).putExtra("route", SettingsRoutes.Git.route)) }) {
+                TextButton(
+                    onClick = {
+                        context.startActivity(
+                            Intent(context, SettingsActivity::class.java).putExtra("route", SettingsRoutes.Git.route)
+                        )
+                    }
+                ) {
                     Text("Open Git settings")
                 }
             }
             return
         }
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.fillMaxSize().padding(bottom = 82.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text("Workflow runs", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                 if (loading) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                IconButton(onClick = { refreshKey++ }) { Icon(painterResource(drawables.refresh), contentDescription = "Refresh") }
+                IconButton(onClick = { refreshKey++ }) {
+                    Icon(painterResource(drawables.refresh), contentDescription = "Refresh")
+                }
             }
             error?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 12.dp))
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
             }
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 if (runs.isEmpty() && !loading) {
-                    item { Text("No workflow runs.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
+                    item {
+                        Text(
+                            "No workflow runs.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(16.dp),
+                        )
+                    }
                 }
                 items(runs.size) { i ->
                     val r = runs[i]
                     val (dot, label) = runStatus(r)
                     Row(
-                        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = { tapped = r }).padding(horizontal = 12.dp, vertical = 10.dp),
+                        modifier =
+                            Modifier.fillMaxWidth()
+                                .combinedClickable(onClick = { tapped = r })
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(modifier = Modifier.size(10.dp).background(dot, RoundedCornerShape(50)))
                         Spacer(Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(r.title.ifBlank { "(run)" }, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("${r.branch} · $label", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                r.title.ifBlank { "(run)" },
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                "${r.branch} · $label",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
-                        Icon(painterResource(drawables.chevron_right), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                        Icon(
+                            painterResource(drawables.chevron_right),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
                     }
                     HorizontalDivider()
                 }
@@ -788,15 +895,20 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                 title = { Text(if (running) "Run in progress" else "Workflow run") },
                 text = {
                     Text(
-                        (if (running) "This run is still ${run.status}. " else "Result: ${run.conclusion.ifBlank { "unknown" }}. ") +
+                        (if (running) "This run is still ${run.status}. "
+                        else "Result: ${run.conclusion.ifBlank { "unknown" }}. ") +
                             "Open it on GitHub to see the full, live log?"
                     )
                 },
                 confirmButton = {
-                    TextButton(onClick = {
-                        tapped = null
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, run.htmlUrl.toUri())) }
-                    }) { Text("Open on GitHub") }
+                    TextButton(
+                        onClick = {
+                            tapped = null
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, run.htmlUrl.toUri())) }
+                        }
+                    ) {
+                        Text("Open on GitHub")
+                    }
                 },
                 dismissButton = { TextButton(onClick = { tapped = null }) { Text(stringResource(strings.cancel)) } },
             )
@@ -847,34 +959,84 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                     when (mode) {
                         "root" ->
                             if (linked) {
-                                Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
                                     Column(modifier = Modifier.padding(14.dp)) {
-                                        Text("Linked to", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text(repoLabel, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        Text(
+                                            "Linked to",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Text(
+                                            repoLabel,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
                                     }
                                 }
                                 Spacer(Modifier.height(12.dp))
                                 if (web != null) {
-                                    TextButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, web.toUri())) } }) { Text("Open on GitHub") }
+                                    TextButton(
+                                        onClick = {
+                                            runCatching {
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, web.toUri()))
+                                            }
+                                        }
+                                    ) {
+                                        Text("Open on GitHub")
+                                    }
                                 }
-                                TextButton(onClick = { confirmUnlink = true }) { Text("Unlink", color = MaterialTheme.colorScheme.error) }
+                                TextButton(onClick = { confirmUnlink = true }) {
+                                    Text("Unlink", color = MaterialTheme.colorScheme.error)
+                                }
                             } else {
-                                Text("No remote linked yet. Link an existing repository, or create a new one.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    "No remote linked yet. Link an existing repository, or create a new one.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                                 Spacer(Modifier.height(10.dp))
-                                OriginOption("Link an existing URL", "Paste a git remote URL") { urlField = ""; mode = "url" }
-                                OriginOption("Choose from my repositories", "Search your GitHub repos") { mode = "pick" }
-                                OriginOption("Create a new repository", "New repo on your GitHub account") { mode = "create" }
+                                OriginOption("Link an existing URL", "Paste a git remote URL") {
+                                    urlField = ""
+                                    mode = "url"
+                                }
+                                OriginOption("Choose from my repositories", "Search your GitHub repos") {
+                                    mode = "pick"
+                                }
+                                OriginOption("Create a new repository", "New repo on your GitHub account") {
+                                    mode = "create"
+                                }
                             }
                         "url" ->
-                            OutlinedTextField(value = urlField, onValueChange = { urlField = it }, label = { Text("Git URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                            OutlinedTextField(
+                                value = urlField,
+                                onValueChange = { urlField = it },
+                                label = { Text("Git URL") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         "create" -> {
-                            OutlinedTextField(value = newName, onValueChange = { newName = it }, label = { Text("Repository name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                            OutlinedTextField(
+                                value = newName,
+                                onValueChange = { newName = it },
+                                label = { Text("Repository name") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(checked = newPrivate, onCheckedChange = { newPrivate = it })
                                 Text("Private")
                             }
                             if (!GitHubCli.hasToken()) {
-                                Text("Add your GitHub token in Git settings first.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    "Add your GitHub token in Git settings first.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
                         "pick" ->
@@ -884,7 +1046,9 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                                     onClick = {
                                         loadingRepos = true
                                         scope.launch {
-                                            GitHubCli.listRepos().onSuccess { repos = it }.onFailure { toast(it.message) }
+                                            GitHubCli.listRepos()
+                                                .onSuccess { repos = it }
+                                                .onFailure { toast(it.message) }
                                             loadingRepos = false
                                         }
                                     },
@@ -892,18 +1056,41 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                                     Text(if (loadingRepos) "Loading…" else "Load my repositories")
                                 }
                                 if (!GitHubCli.hasToken()) {
-                                    Text("Add your GitHub token in Git settings first.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        "Add your GitHub token in Git settings first.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
                             } else {
-                                OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Search") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                                repos.filter { it.fullName.contains(query, ignoreCase = true) }.take(40).forEach { repo ->
-                                    TextButton(
-                                        onClick = { viewModel.setOriginUrl(repo.cloneUrl); origin = repo.cloneUrl; mode = "root"; toast("Linked ${repo.fullName}") },
-                                        modifier = Modifier.fillMaxWidth(),
-                                    ) {
-                                        Text(repo.fullName, modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                OutlinedTextField(
+                                    value = query,
+                                    onValueChange = { query = it },
+                                    label = { Text("Search") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                repos
+                                    .filter { it.fullName.contains(query, ignoreCase = true) }
+                                    .take(40)
+                                    .forEach { repo ->
+                                        TextButton(
+                                            onClick = {
+                                                viewModel.setOriginUrl(repo.cloneUrl)
+                                                origin = repo.cloneUrl
+                                                mode = "root"
+                                                toast("Linked ${repo.fullName}")
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            Text(
+                                                repo.fullName,
+                                                modifier = Modifier.fillMaxWidth(),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
                                     }
-                                }
                             }
                     }
                 }
@@ -911,7 +1098,16 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
             confirmButton = {
                 when (mode) {
                     "url" ->
-                        TextButton(enabled = urlField.isNotBlank(), onClick = { viewModel.setOriginUrl(urlField); origin = urlField.trim(); mode = "root" }) { Text("Link") }
+                        TextButton(
+                            enabled = urlField.isNotBlank(),
+                            onClick = {
+                                viewModel.setOriginUrl(urlField)
+                                origin = urlField.trim()
+                                mode = "root"
+                            },
+                        ) {
+                            Text("Link")
+                        }
                     "create" ->
                         TextButton(
                             enabled = !busy && newName.isNotBlank() && GitHubCli.hasToken(),
@@ -919,12 +1115,19 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                                 busy = true
                                 scope.launch {
                                     GitHubCli.createRepo(newName.trim(), newPrivate)
-                                        .onSuccess { cloneUrl -> viewModel.setOriginUrl(cloneUrl); origin = cloneUrl; mode = "root"; toast("Repository created") }
+                                        .onSuccess { cloneUrl ->
+                                            viewModel.setOriginUrl(cloneUrl)
+                                            origin = cloneUrl
+                                            mode = "root"
+                                            toast("Repository created")
+                                        }
                                         .onFailure { toast(it.message) }
                                     busy = false
                                 }
                             },
-                        ) { Text(if (busy) "Creating…" else "Create") }
+                        ) {
+                            Text(if (busy) "Creating…" else "Create")
+                        }
                     else -> TextButton(enabled = !busy, onClick = onDismiss) { Text(stringResource(strings.close)) }
                 }
             },
@@ -939,13 +1142,23 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
             AlertDialog(
                 onDismissRequest = { confirmUnlink = false },
                 title = { Text("Unlink origin") },
-                text = { Text("Remove the link to \"$repoLabel\"? Your local repository stays — only the remote is unlinked.") },
+                text = {
+                    Text("Remove the link to \"$repoLabel\"? Your local repository stays — only the remote is unlinked.")
+                },
                 confirmButton = {
-                    TextButton(onClick = { viewModel.removeOrigin(); origin = ""; confirmUnlink = false }) {
+                    TextButton(
+                        onClick = {
+                            viewModel.removeOrigin()
+                            origin = ""
+                            confirmUnlink = false
+                        }
+                    ) {
                         Text("Unlink", color = MaterialTheme.colorScheme.error)
                     }
                 },
-                dismissButton = { TextButton(onClick = { confirmUnlink = false }) { Text(stringResource(strings.cancel)) } },
+                dismissButton = {
+                    TextButton(onClick = { confirmUnlink = false }) { Text(stringResource(strings.cancel)) }
+                },
             )
         }
     }
@@ -959,7 +1172,11 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Text(title, style = MaterialTheme.typography.bodyLarge)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -986,9 +1203,26 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                         Text("This needs a GitHub remote and your token (set it in Git settings).")
                     } else {
                         Text("From \"$head\" into:", style = MaterialTheme.typography.bodySmall)
-                        OutlinedTextField(value = base, onValueChange = { base = it }, label = { Text("Base branch") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = body, onValueChange = { body = it }, label = { Text("Description (optional)") }, modifier = Modifier.fillMaxWidth().height(96.dp))
+                        OutlinedTextField(
+                            value = base,
+                            onValueChange = { base = it },
+                            label = { Text("Base branch") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = title,
+                            onValueChange = { title = it },
+                            label = { Text("Title") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = body,
+                            onValueChange = { body = it },
+                            label = { Text("Description (optional)") },
+                            modifier = Modifier.fillMaxWidth().height(96.dp),
+                        )
                         Text(
                             "Note: push your branch first — GitHub needs the branch on the remote to open a PR.",
                             style = MaterialTheme.typography.labelSmall,
@@ -1007,7 +1241,9 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                                 .onSuccess { urlOrMsg ->
                                     toast("Pull request created")
                                     if (urlOrMsg.startsWith("http")) {
-                                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, urlOrMsg.toUri())) }
+                                        runCatching {
+                                            context.startActivity(Intent(Intent.ACTION_VIEW, urlOrMsg.toUri()))
+                                        }
                                     }
                                     onDismiss()
                                 }
@@ -1024,7 +1260,7 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Change lists (Code section)
+    // Change lists (Code section) — full width, no 61.dp rail clipping
     // ---------------------------------------------------------------------------------------------
     @Composable
     private fun ColumnScope.ConflictsList(
@@ -1068,7 +1304,12 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
             }
 
         Row(
-            modifier = Modifier.width(getDrawerWidth() - 61.dp).combinedClickable(onClick = onToggleExpansion).padding(vertical = 4.dp),
+            modifier =
+                Modifier.fillMaxWidth()
+                    .padding(horizontal = 10.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .combinedClickable(onClick = onToggleExpansion)
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val rotationDegree by animateFloatAsState(targetValue = if (!expanded) 0f else 90f, label = "rotation")
@@ -1089,34 +1330,45 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                 modifier = Modifier.size(20.dp),
             )
             Spacer(Modifier.width(8.dp))
-            Text(text = label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.weight(1f))
             Text(
-                text = items.size.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(end = 8.dp),
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
             )
+            Spacer(Modifier.weight(1f))
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                shape = RoundedCornerShape(50),
+            ) {
+                Text(
+                    text = items.size.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
         }
 
         AnimatedVisibility(visible = expanded) { ChangesItemList(items, onOpenFileDiff) }
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
     }
 
     @Composable
     private fun ChangesItemList(items: List<GitChange>, onOpenFileDiff: (GitChange) -> Unit) {
         val context = LocalContext.current
-        Column(modifier = Modifier.padding(start = 40.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 10.dp)) {
             items.forEach { change ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier =
-                        Modifier.width(getDrawerWidth() - 61.dp)
+                        Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
                             .combinedClickable(
                                 onClick = { onOpenFileDiff(change) },
                                 onLongClick = { viewModel.discardTarget = change },
                             )
-                            .padding(vertical = 4.dp),
+                            .padding(horizontal = 6.dp, vertical = 5.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Checkbox(
@@ -1129,21 +1381,28 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                     val fileName = change.path.substringAfterLast("/")
                     FileNameIcon(fileName = fileName, isDirectory = false)
                     val underlineColor = fileTreeViewModel.get()?.let { getUnderlineColor(context, it, file) }
-                    Text(
-                        text = fileName,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = getGitColor(change.type),
-                        modifier = Modifier.addIf(underlineColor != null) { drawErrorUnderline(underlineColor!!) },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = change.path,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            text = fileName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = getGitColor(change.type),
+                            modifier = Modifier.addIf(underlineColor != null) { drawErrorUnderline(underlineColor!!) },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = change.path,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
         }
