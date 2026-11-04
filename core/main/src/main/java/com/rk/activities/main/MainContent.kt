@@ -445,7 +445,7 @@ fun MainContent(
                                 if (mainViewModel.showCommandPalette) {
                                     scope.launch { mainViewModel.closeCommandPalette() }
                                 } else {
-                                    mainViewModel.openCommandPalette()
+                                    mainViewModel.showCommandPalette()
                                 }
                             },
                         )

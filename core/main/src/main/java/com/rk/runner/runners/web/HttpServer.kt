@@ -56,7 +56,7 @@ class HttpServer(
         }
     }
 
-    private fun resolveRelativePath(base: FileObject, rawUri: String): FileObject? {
+    private suspend fun resolveRelativePath(base: FileObject, rawUri: String): FileObject? {
         val decoded = runCatching { URLDecoder.decode(rawUri, "UTF-8") }.getOrDefault(rawUri)
         val segments = decoded.trimStart('/').split('/').filter { it.isNotEmpty() && it != "." }
         if (segments.any { it == ".." }) return null

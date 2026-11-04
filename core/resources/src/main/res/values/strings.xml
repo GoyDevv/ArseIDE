@@ -215,6 +215,7 @@
     <string name="show_all_files">Show all files</string>
     <string name="warning_private_dir">Content of this directory will get deleted if you clear data or delete Xed-Editor</string>
     <string name="file">File</string>
+    <string name="files">Files</string>
     <string name="folder">Folder</string>
     <string name="feature_toggles">Feature toggles</string>
     <string name="backup">Backup</string>

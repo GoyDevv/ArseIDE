@@ -199,7 +199,7 @@ fun ProjectsBrowserSheet(onDismiss: () -> Unit, onOpenProject: (File) -> Unit) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = glass.panelBackground,
+        containerColor = glass.surfaceBottom,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
