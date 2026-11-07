@@ -564,7 +564,7 @@ fun HorizonStudioFragment(
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                             )
-                            res.logs.forEach { line ->
+                            for (line in res.logs) {
                                 Text(
                                     text = "• $line",
                                     style = MaterialTheme.typography.bodySmall,

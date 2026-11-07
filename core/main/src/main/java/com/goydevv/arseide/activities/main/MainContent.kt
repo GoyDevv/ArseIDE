@@ -553,14 +553,15 @@ private fun GitFragmentView(
 ) {
     val scope = rememberCoroutineScope()
     var refreshGit by remember { mutableStateOf(0) }
-    val gitRoot =
-        remember(currentProjectPath, refreshGit) {
-            currentProjectPath?.let { findGitRoot(it) }
-        }
+    var gitRoot by remember(currentProjectPath, refreshGit) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(currentProjectPath, refreshGit) {
+        gitRoot = currentProjectPath?.let { findGitRoot(it) }
+    }
 
     LaunchedEffect(gitRoot) {
-        if (gitRoot != null) {
-            gitViewModel.get()?.loadRepository(gitRoot)
+        gitRoot?.let { root ->
+            gitViewModel.get()?.loadRepository(root)
         }
     }
 
@@ -672,7 +673,7 @@ private fun ToolsAndConfigFragmentView(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val targetDir = remember(currentProjectPath) { currentProjectPath?.let { File(it) } ?: sandboxHomeDir() }
-    var batteryExempt by remember { mutableStateOf(PhantomKillerBypass.isIgnoringBatteryOptimizations(context)) }
+    var batteryExempt by remember { mutableStateOf<Boolean>(PhantomKillerBypass.isIgnoringBatteryOptimizations(context)) }
     var bypassStatus by remember { mutableStateOf<String?>(null) }
 
     Column(

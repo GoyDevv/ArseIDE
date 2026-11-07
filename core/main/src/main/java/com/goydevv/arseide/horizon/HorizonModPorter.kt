@@ -30,7 +30,7 @@ import org.json.JSONObject
  *     - Generates 26.3 client item model dispatch files at `assets/<id>/items/<name>.json`.
  *  3. **Java Registry -> Declarative Horizon JSON Conversion**:
  *     - Inspects Java `Registry.register(BuiltInRegistries.BLOCK/ITEM, ...)` calls,
- *       `assets/<id>/blockstates/*.json`, and `assets/<id>/models/item/*.json` to generate
+ *       `assets/<id>/blockstates/` and `assets/<id>/models/item/` JSON files to generate
  *       `data/<id>/horizon/block/<name>.json`, `data/<id>/horizon/item/<name>.json` (with 26.3
  *       `components`), and `data/<id>/horizon/creative_tab/main.json`.
  *  4. **Java Code -> Rust WASM (`mod.wasm`) / ServerMod Translation**:

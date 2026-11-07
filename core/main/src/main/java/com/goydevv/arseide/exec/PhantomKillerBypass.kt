@@ -7,7 +7,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
-import com.termux.shared.android.PhantomProcessUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -28,6 +27,9 @@ import kotlinx.coroutines.withContext
  *    status & ADB commands in the UI.
  */
 object PhantomKillerBypass {
+
+    const val FEATURE_FLAG_SETTINGS_ENABLE_MONITOR_PHANTOM_PROCS: String =
+        "settings_enable_monitor_phantom_procs"
 
     data class Status(
         val sdkInt: Int,
@@ -56,6 +58,9 @@ object PhantomKillerBypass {
         val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return false
         return pm.isIgnoringBatteryOptimizations(context.packageName)
     }
+
+    fun isIgnoringBatteryOptimizations(context: Context): Boolean =
+        isBatteryOptimizationIgnored(context)
 
     @SuppressLint("BatteryLife")
     fun requestIgnoreBatteryOptimizations(context: Context) {
@@ -87,19 +92,16 @@ object PhantomKillerBypass {
 
             val monitorVal =
                 runCatching {
-                        Settings.Global.getString(
-                            context.contentResolver,
-                            PhantomProcessUtils.FEATURE_FLAG_SETTINGS_ENABLE_MONITOR_PHANTOM_PROCS,
-                        )
-                    }
-                    .getOrNull()
-                    ?: runCatching {
-                            PhantomProcessUtils.getFeatureFlagMonitorPhantomProcsValueString(context).name
-                        }
-                        .getOrDefault("DEFAULT")
+                    Settings.Global.getString(
+                        context.contentResolver,
+                        FEATURE_FLAG_SETTINGS_ENABLE_MONITOR_PHANTOM_PROCS,
+                    )
+                }.getOrNull() ?: "DEFAULT"
 
-            val maxProcs =
-                runCatching { PhantomProcessUtils.getActivityManagerMaxPhantomProcesses(context) }.getOrNull()
+            val maxProcs: Int? =
+                runCatching {
+                    Settings.Global.getInt(context.contentResolver, "max_phantom_processes")
+                }.getOrNull()
 
             val bypassed =
                 monitorVal.equals("false", ignoreCase = true) ||
@@ -115,12 +117,8 @@ object PhantomKillerBypass {
             )
         }
 
-    /**
-     * Best-effort automatic bypass before running a build:
-     * 1. Attempts `Settings.Global.putString` if `WRITE_SECURE_SETTINGS` was granted via ADB.
-     * 2. Attempts root (`su -c`) if the device is rooted.
-     * Returns true if system-level bypass succeeded, false if falling back to in-process worker guard.
-     */
+    suspend fun applySystemPhantomBypass(context: Context): Boolean = ensureProtected(context)
+
     suspend fun ensureProtected(context: Context): Boolean =
         withContext(Dispatchers.IO) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return@withContext true
@@ -132,7 +130,7 @@ object PhantomKillerBypass {
                 val ok =
                     Settings.Global.putString(
                         context.contentResolver,
-                        PhantomProcessUtils.FEATURE_FLAG_SETTINGS_ENABLE_MONITOR_PHANTOM_PROCS,
+                        FEATURE_FLAG_SETTINGS_ENABLE_MONITOR_PHANTOM_PROCS,
                         "false",
                     )
                 Settings.Global.putString(
