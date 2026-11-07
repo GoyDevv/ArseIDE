@@ -47,6 +47,7 @@ import com.goydevv.arseide.resources.getString
 import com.goydevv.arseide.resources.strings
 import com.goydevv.arseide.settings.Settings
 import com.goydevv.arseide.settings.app.InbuiltFeatures
+import com.goydevv.arseide.terminal.AutoSetup
 import com.goydevv.arseide.terminal.terminalView
 import com.goydevv.arseide.utils.LoadingPopup
 import com.goydevv.arseide.utils.dialogRes
@@ -83,6 +84,13 @@ fun SettingsTerminalScreen(overrideNavController: NavController? = null) {
         val activity = LocalActivity.current as? AppCompatActivity
 
         PreferenceGroup(heading = stringResource(strings.advanced)) {
+            SettingsItem(
+                label = "Run / Repair Sandbox Auto-Setup",
+                description = "Download Ubuntu 24.04 rootfs and install compilers (Git, Python, Node, JDK, C/C++)",
+                default = false,
+                showSwitch = false,
+                onClick = { activity?.let { AutoSetup.launch(it) } },
+            )
             if (InbuiltFeatures.debugMode.state.value) {
                 SettingsItem(
                     label = stringResource(strings.failsafe_mode),

@@ -2,7 +2,9 @@ package com.goydevv.arseide.editor
 
 import android.content.Context
 import com.goydevv.arseide.settings.Settings
+import com.goydevv.arseide.theme.amoled
 import com.goydevv.arseide.theme.currentTheme
+import com.goydevv.arseide.theme.dynamicTheme
 import com.goydevv.arseide.utils.isDarkTheme
 
 const val TEXTMATE_PREFIX = "textmate/"
@@ -20,6 +22,10 @@ fun getCacheKey(context: Context): String {
         append(prefix)
         append('_')
         append(Settings.theme)
+        append("_monet_")
+        append(dynamicTheme.value)
+        append("_amoled_")
+        append(amoled.value)
         append('_')
         append(currentTheme.value?.darkEditorColors.hashCode())
         append('_')
@@ -28,7 +34,5 @@ fun getCacheKey(context: Context): String {
         append(currentTheme.value?.darkTokenColors.hashCode())
         append('_')
         append(currentTheme.value?.lightTokenColors.hashCode())
-        append('_')
-        append(Settings.amoled)
     }
 }

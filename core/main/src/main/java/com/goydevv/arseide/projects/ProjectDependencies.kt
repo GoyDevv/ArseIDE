@@ -4,31 +4,19 @@ import com.goydevv.arseide.exec.ShellUtils
 import com.goydevv.arseide.exec.TerminalCommand
 
 /**
- * Detects and installs the toolchain a freshly created project needs.
- *
- * Detection runs headlessly in the Ubuntu sandbox via [ShellUtils.runUbuntu].
- * Installation is done in the visible terminal (apt-get) so the user can watch progress.
+ * Detects and installs the toolchain a project needs.
  */
 object ProjectDependencies {
 
     data class Tool(val name: String, val checkCmd: String, val aptPackages: List<String>)
 
-    /** Tools required by the given project, or empty for templates that need nothing. */
     fun requiredTools(config: ProjectConfig): List<Tool> =
         when (config.template) {
             ProjectTemplate.NONE,
-            ProjectTemplate.WEB,
-            ProjectTemplate.HORIZON_CONTENT_MOD -> emptyList()
-            ProjectTemplate.HORIZON_WASM_CLIENT_MOD,
-            ProjectTemplate.HORIZON_WASM_SERVER_MOD ->
-                listOf(
-                    Tool(
-                        "Rust & cargo (wasm32)",
-                        "command -v cargo >/dev/null 2>&1 && command -v rustc >/dev/null 2>&1",
-                        listOf("cargo", "rustc", "python3"),
-                    )
-                )
-            ProjectTemplate.HORIZON_NATIVE_MIXIN_MOD ->
+            ProjectTemplate.WEB -> emptyList()
+            ProjectTemplate.HORIZON_GAMEPLAY_HNMOD,
+            ProjectTemplate.HORIZON_HUD_COMMAND_HNMOD,
+            ProjectTemplate.HORIZON_CRATE_ENGINE_HNMOD ->
                 listOf(
                     Tool(
                         "Rust & cargo",
@@ -99,14 +87,14 @@ object ProjectDependencies {
             buildString {
                 append("set -e; export DEBIAN_FRONTEND=noninteractive; ")
                 if (packages.isNotBlank()) {
-                    append("echo '==> Installing required tools: $packages'; ")
+                    append("echo '==> Installing tools: $packages'; ")
                     append("apt-get update -y; ")
                     append("apt-get install -y $packages; ")
                 }
                 if (needsSdk) {
                     append("$ANDROID_SDK_INSTALL; ")
                 }
-                append("echo; echo '==> All set. You can close this terminal.'")
+                append("echo; echo '==> Done.'")
             }
         return TerminalCommand(
             sandbox = true,

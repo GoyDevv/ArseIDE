@@ -39,6 +39,7 @@ import com.goydevv.arseide.components.SettingsItem
 import com.goydevv.arseide.components.compose.preferences.base.PreferenceGroup
 import com.goydevv.arseide.components.compose.preferences.base.PreferenceLayout
 import com.goydevv.arseide.components.compose.preferences.base.PreferenceTemplate
+import com.goydevv.arseide.editor.ThemeManager
 import com.goydevv.arseide.file.child
 import com.goydevv.arseide.file.copyToTempDir
 import com.goydevv.arseide.file.themeDir
@@ -84,7 +85,9 @@ fun ThemeScreen(modifier: Modifier = Modifier) {
                 sideEffect = {
                     Settings.amoled = it
                     amoled.value = it
+                    ThemeManager.invalidateCache()
                     updateThemes()
+                    refreshEditors()
                 },
             )
 
@@ -97,7 +100,9 @@ fun ThemeScreen(modifier: Modifier = Modifier) {
                 sideEffect = {
                     Settings.monet = it
                     dynamicTheme.value = it
+                    ThemeManager.invalidateCache()
                     updateThemes()
+                    refreshEditors()
                 },
             )
         }
@@ -121,6 +126,7 @@ fun ThemeScreen(modifier: Modifier = Modifier) {
                     sideEffect = {
                         currentTheme.value = theme
                         Settings.theme = theme.id
+                        ThemeManager.invalidateCache()
                         refreshEditors()
                     },
                     endWidget = {
@@ -130,6 +136,7 @@ fun ThemeScreen(modifier: Modifier = Modifier) {
                                     if (currentTheme.value?.id == theme.id) {
                                         currentTheme.value = blueberry
                                         Settings.theme = blueberry.id
+                                        ThemeManager.invalidateCache()
                                         refreshEditors()
                                     }
 
@@ -314,6 +321,8 @@ fun DayNightDialog(showBottomSheet: MutableState<Boolean>, context: Context) {
                                     selectedMode = mode
                                     Settings.theme_mode = selectedMode
                                     AppCompatDelegate.setDefaultNightMode(selectedMode)
+                                    ThemeManager.invalidateCache()
+                                    refreshEditors()
                                     coroutineScope.launch {
                                         bottomSheetState.hide()
                                         showBottomSheet.value = false

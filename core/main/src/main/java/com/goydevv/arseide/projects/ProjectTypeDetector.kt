@@ -2,25 +2,23 @@ package com.goydevv.arseide.projects
 
 import java.io.File
 
-/** A project kind inferred from files on disk — works for created, imported, or cloned projects. */
+/** A project kind inferred from files on disk. */
 enum class DetectedProjectType(val label: String) {
-    HORIZON_MOD("Horizon Mod (.hmod)"),
-    HORIZON_MIXIN_MOD("Horizon Native Mixin (.hnmod)"),
     FABRIC_MOD("Fabric mod"),
     FORGE_MOD("Forge / NeoForge mod"),
     ANDROID("Android app"),
-    GRADLE("Gradle (JVM) project"),
+    GRADLE("Gradle (JVM)"),
     NODE("Node.js"),
     PYTHON("Python"),
     WEB("Static web"),
     RUST("Rust"),
     GO("Go"),
+    HORIZON_MIXIN_MOD("Horizon Native Mod (.hnmod)"),
     UNKNOWN("Unknown"),
 }
 
 /**
- * Heuristic project-type detector. Inspects marker files in [root] (and one level of `app/`), so it
- * works regardless of whether the project was created here, imported, ported, or cloned.
+ * Inspects marker files in [root] to identify the project type.
  */
 object ProjectTypeDetector {
 
@@ -30,9 +28,10 @@ object ProjectTypeDetector {
         fun has(rel: String) = File(root, rel).exists()
         fun topLevel(predicate: (File) -> Boolean) = root.listFiles()?.any { it.isFile && predicate(it) } == true
 
-        // Horizon Mods (.hmod / .hnmod) first
-        if (has("horizon-mod.toml")) return DetectedProjectType.HORIZON_MOD
-        if (has("horizon-mixin.toml")) return DetectedProjectType.HORIZON_MIXIN_MOD
+        // Horizon Native Mod (.hnmod)
+        if (has("horizon-native.json") || has("horizon-mixin.toml") || File(root, "mixins").isDirectory) {
+            return DetectedProjectType.HORIZON_MIXIN_MOD
+        }
 
         // Minecraft Java mods
         if (has("src/main/resources/fabric.mod.json") || has("fabric.mod.json")) {

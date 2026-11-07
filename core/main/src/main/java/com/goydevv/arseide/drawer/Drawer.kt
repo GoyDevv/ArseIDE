@@ -436,7 +436,9 @@ fun DrawerContent(fullscreen: Boolean) {
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(stringResource(strings.install_dependencies_msg))
-                            deps.forEach { Text("•  ${it.name}") }
+                            for (dep in deps) {
+                                Text("•  ${dep.name}")
+                            }
                         }
                     },
                     confirmButton = {
@@ -695,7 +697,7 @@ private fun DrawerEmptyProjectState(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Open a project from the Projects tab or create a new Android, Fabric, or Horizon (.hmod) project.",
+                    text = "Open a project from the Projects tab or create a new Android, Fabric, or Horizon (.hnmod) project.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,

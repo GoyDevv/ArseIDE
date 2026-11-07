@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "id": "veinminer_port",
+  "version": "0.1.0",
+  "game": "26.3",
+  "horizon": "6f8c7a0e5d531d3834c4d0be4659a1db8e7e5c2a",
+  "mixins": "e3ee0a7c450b28c3ed58fa59a4881ec78c5ee2e0",
+  "hooks": 35
+}

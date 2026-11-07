@@ -119,7 +119,7 @@ fun AboutScreen() {
 
             LaunchedEffect(Unit) {
                 val client = okHttpClient
-                val url = "https://api.github.com/repos/goydevv/arseide"
+                val url = "https://api.github.com/repos/GoyDevv/ArseIDE"
                 val request = Request.Builder().url(url).build()
 
                 withContext(Dispatchers.IO) {
@@ -162,7 +162,7 @@ fun AboutScreen() {
                     )
                 },
                 sideEffect = {
-                    val url = "https://github.com/goydevv/arseide"
+                    val url = "https://github.com/GoyDevv/ArseIDE"
                     val intent = Intent(Intent.ACTION_VIEW).apply { data = url.toUri() }
                     context.startActivity(intent)
                 },

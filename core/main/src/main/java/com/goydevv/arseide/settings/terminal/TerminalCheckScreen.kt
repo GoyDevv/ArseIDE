@@ -89,7 +89,7 @@ fun TerminalCheckScreen() {
                 text = stringResource(strings.samsung_proot_warning),
                 warning = true,
                 onClick = {
-                    context.openUrl("https://github.com/goydevv/arseide/issues")
+                    context.openUrl("https://github.com/GoyDevv/ArseIDE/issues")
                 },
             )
         }

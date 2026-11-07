@@ -1,5 +1,9 @@
 package com.goydevv.arseide.horizon
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import com.goydevv.arseide.settings.Settings
 import com.goydevv.arseide.utils.application
 import java.io.File
 import java.util.zip.ZipFile
@@ -9,452 +13,639 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Full 4-stage Java (Fabric / NeoForge / Forge) -> Horizon Mod (`.hmod`) Porter.
+ * Automated Java (`.jar` or Fabric / NeoForge / Forge project folder) -> Horizon Native Mod (`.hnmod`)
+ * Converter.
  *
- * Accepts either:
- *  - An open-source Fabric/NeoForge/Forge project directory
- *  - A compiled `.jar` file
- *
- * Stages:
- *  1. **Metadata Extraction**: Parses `fabric.mod.json`, `META-INF/neoforge.mods.toml`, or
- *     `META-INF/mods.toml` to extract `id` (normalized to `[a-z0-9_]{1,64}`, never `minecraft`, `c`,
- *     or `horizon`), `name`, `version`, `description`, `authors`, and extra `namespaces`.
- *  2. **26.3 Asset & Data Upgrade**:
- *     - Lowercases all paths under `assets/` and `data/`.
- *     - Renames legacy 1.20/1.21 plural data folders to 26.3 singular folders (`recipes` -> `recipe`,
- *       `loot_tables` -> `loot_table`, `structures` -> `structure`, `advancements` -> `advancement`,
- *       `tags/blocks` -> `tags/block`, `tags/items` -> `tags/item`).
- *     - Upgrades 1.21.1 recipe ingredients (`{"item":"x"}` -> `"x"`, `{"tag":"y"}` -> `"#y"`),
- *       loot tables (`conditions` -> `condition`, `functions` -> `modifier`, `"function"` -> `"type"`),
- *       and renamed vanilla IDs (`minecraft:chain` -> `minecraft:iron_chain`).
- *     - Generates 26.3 client item model dispatch files at `assets/<id>/items/<name>.json`.
- *  3. **Java Registry -> Declarative Horizon JSON Conversion**:
- *     - Inspects Java `Registry.register(BuiltInRegistries.BLOCK/ITEM, ...)` calls,
- *       `assets/<id>/blockstates/` and `assets/<id>/models/item/` JSON files to generate
- *       `data/<id>/horizon/block/<name>.json`, `data/<id>/horizon/item/<name>.json` (with 26.3
- *       `components`), and `data/<id>/horizon/creative_tab/main.json`.
- *  4. **Java Code -> Rust WASM (`mod.wasm`) / ServerMod Translation**:
- *     - Translates detected client HUDs, keybindings, custom screens, or raycasts into `src/lib.rs`
- *       using `horizon-mod-sdk` (`Mod` trait) or server events/commands using `ServerMod` (`api = "0.3"`),
- *       bundling the local `sdk/horizon-mod-sdk` and adding matching capabilities to `horizon-mod.toml`.
+ * Follows the exact architecture in `horizon-hnmod-complete-kit.zip` (`tools/port_java_to_hnmod.py`):
+ * 1. Accepts a `.jar` selected via the system file picker (`Uri`) or a `File` (`.jar` or project folder).
+ * 2. Extracts metadata from `fabric.mod.json`, `META-INF/neoforge.mods.toml`, or `META-INF/mods.toml`.
+ * 3. Scans `.class` bytecode constant pools and `.java`/`.kt` sources to detect hooks (`hud`, `key`,
+ *    `destroy_block`, `right_click_block`, `use_item`, `tooltip`, `command`, `server_tick`,
+ *    `living_damage`, `loot`).
+ * 4. Generates a complete `.hnmod` project tree:
+ *    - `horizon-native.json` at root (`schema = 1`, `id`, `version`, `game = "26.3"`, 40-char hex
+ *      `horizon` and `mixins` revisions, and computed `hooks` API level)
+ *    - `mixins/<id>/horizon-mixin.toml`
+ *    - `mixins/<id>/runtime.rs`
+ *    - `mixins/<id>/` hook files (`list.rs`, `settings.rs`, `settings_click.rs`, `tick.rs`, etc.)
+ *    - `mixins/<id>/data/port_manifest.json`
+ *    - `mixins/<id>/engine/Cargo.toml`, `README.md`, and `src/lib.rs`
+ * 5. Validates and packages `<id>.hnmod`.
  */
 object HorizonModPorter {
 
     data class PortResult(
         val success: Boolean,
         val outputDir: File,
-        val packagedHmod: File?,
+        val packagedHnmod: File?,
         val modId: String,
         val modName: String,
         val version: String,
-        val apiVersion: String,
-        val blocksPorted: Int,
-        val itemsPorted: Int,
-        val recipesUpgraded: Int,
-        val lootTablesUpgraded: Int,
-        val generatedWasmSource: Boolean,
+        val hooksApiLevel: Int,
+        val detectedHooks: List<String>,
+        val classesScanned: Int,
+        val blocksDiscovered: Int,
+        val itemsDiscovered: Int,
         val logs: List<String>,
         val error: String? = null,
     )
 
     private val RESERVED_IDS = setOf("minecraft", "c", "horizon")
 
-    private val PLURAL_DATA_RENAMES =
-        mapOf(
-            "recipes" to "recipe",
-            "loot_tables" to "loot_table",
-            "structures" to "structure",
-            "advancements" to "advancement",
-            "predicates" to "predicate",
-            "item_modifiers" to "item_modifier",
-        )
-
-    private val PLURAL_TAG_RENAMES =
-        mapOf(
-            "blocks" to "block",
-            "items" to "item",
-            "entity_types" to "entity_type",
-            "fluids" to "fluid",
-            "game_events" to "game_event",
-        )
-
-    private val VANILLA_ID_RENAMES =
-        mapOf(
-            "minecraft:chain" to "minecraft:iron_chain",
-        )
-
-    private val SOUND_MAP =
-        mapOf(
-            "WOOD" to "wood",
-            "STONE" to "stone",
-            "METAL" to "metal",
-            "IRON" to "metal",
-            "COPPER" to "copper",
-            "GLASS" to "glass",
-            "GRASS" to "grass",
-            "GRAVEL" to "gravel",
-            "SAND" to "sand",
-            "SNOW" to "snow",
-            "WOOL" to "wool",
-            "SLIME_BLOCK" to "slime",
-            "HONEY_BLOCK" to "honey",
-            "ANCIENT_DEBRIS" to "netherite",
-            "NETHERITE_BLOCK" to "netherite",
-            "AMETHYST" to "amethyst",
-            "DEEPSLATE" to "deepslate",
-            "TUFF" to "tuff",
-        )
-
     fun sanitizeModId(raw: String): String {
-        val cleaned =
+        var cleaned =
             raw.trim()
                 .lowercase()
                 .replace(Regex("[^a-z0-9_]"), "_")
                 .replace(Regex("_+"), "_")
                 .trim('_')
-        val valid = if (cleaned.isEmpty() || cleaned in RESERVED_IDS) "ported_${cleaned.ifEmpty { "mod" }}" else cleaned
-        return valid.take(64)
+        if (cleaned.isEmpty() || cleaned in RESERVED_IDS) {
+            cleaned = "ported_${cleaned.ifEmpty { "mod" }}"
+        }
+        if (cleaned.first().isDigit()) {
+            cleaned = "mod_$cleaned"
+        }
+        return cleaned.take(64)
     }
+
+    private fun sanitizeVersion(raw: String): String {
+        val t = raw.trim()
+        return if (t.isEmpty() || "${"$"}{" in t) "0.1.0" else t
+    }
+
+    /**
+     * Converts a `.jar` selected from the Android system file picker (`Uri`) into a complete
+     * `.hnmod` project under [targetParentDir] and packages `<id>.hnmod`.
+     */
+    suspend fun portFromUri(
+        context: Context,
+        jarUri: Uri,
+        targetParentDir: File,
+        customOutputName: String? = null,
+    ): PortResult =
+        withContext(Dispatchers.IO) {
+            val displayName = resolveDisplayName(context, jarUri) ?: "selected_mod.jar"
+            val tempJar =
+                File(
+                    context.cacheDir,
+                    "picked_${System.currentTimeMillis()}_${displayName.replace(Regex("[^A-Za-z0-9._-]"), "_")}",
+                )
+            try {
+                context.contentResolver.openInputStream(jarUri)?.use { input ->
+                    tempJar.outputStream().use { output -> input.copyTo(output) }
+                }
+                    ?: return@withContext failResult(
+                        targetParentDir,
+                        listOf(),
+                        "Could not read selected file from system picker.",
+                    )
+
+                port(
+                    sourceFileOrDir = tempJar,
+                    targetParentDir = targetParentDir,
+                    customOutputName = customOutputName,
+                    displaySourceName = displayName,
+                )
+            } finally {
+                runCatching { tempJar.delete() }
+            }
+        }
 
     suspend fun port(
         sourceFileOrDir: File,
         targetParentDir: File,
         customOutputName: String? = null,
-        alsoPackageHmod: Boolean = true,
+        displaySourceName: String? = null,
     ): PortResult =
         withContext(Dispatchers.IO) {
             val logs = mutableListOf<String>()
             var tempExtractDir: File? = null
+            val sourceLabel = displaySourceName ?: sourceFileOrDir.name
 
             try {
                 if (!sourceFileOrDir.exists()) {
                     return@withContext failResult(
                         targetParentDir,
                         logs,
-                        "Source path does not exist: ${sourceFileOrDir.absolutePath}",
+                        "Source not found: ${sourceFileOrDir.absolutePath}",
                     )
                 }
 
                 val workingSourceDir: File =
-                    if (sourceFileOrDir.isFile && sourceFileOrDir.extension.equals("jar", ignoreCase = true)) {
-                        logs += "Extracting JAR archive ${sourceFileOrDir.name}…"
-                        val tmp = File(targetParentDir, ".tmp_port_${System.currentTimeMillis()}")
+                    if (sourceFileOrDir.isFile) {
+                        logs += "Reading archive $sourceLabel…"
+                        val tmp = File(targetParentDir, ".tmp_hnmod_${System.currentTimeMillis()}")
                         tmp.mkdirs()
                         tempExtractDir = tmp
-                        extractJar(sourceFileOrDir, tmp)
+                        extractZipOrJar(sourceFileOrDir, tmp)
                         tmp
                     } else if (sourceFileOrDir.isDirectory) {
-                        logs += "Scanning Java/Fabric/NeoForge project folder ${sourceFileOrDir.name}…"
+                        logs += "Scanning project directory $sourceLabel…"
                         sourceFileOrDir
                     } else {
-                        return@withContext failResult(
-                            targetParentDir,
-                            logs,
-                            "Unsupported input: select a .jar file or a Fabric/NeoForge project folder.",
-                        )
+                        return@withContext failResult(targetParentDir, logs, "Unsupported source input.")
                     }
 
-                // Stage 1: Metadata Extraction
-                val meta = extractMetadata(workingSourceDir)
+                val fallbackBase = sourceLabel.substringBeforeLast('.')
+                val meta = parseJavaMetadata(workingSourceDir, fallbackBase)
                 val modId = meta.id
-                logs += "Extracted metadata: id=$modId, name=\"${meta.name}\", version=${meta.version}"
+                val version = meta.version
+                logs += "Metadata: id=$modId, name=\"${meta.name}\", version=$version"
 
-                val outFolderName = customOutputName?.trim()?.ifBlank { null } ?: "${modId}-hmod"
-                val outRoot = File(targetParentDir, outFolderName)
-                if (outRoot.exists()) outRoot.deleteRecursively()
-                outRoot.mkdirs()
-
-                val resRoot =
-                    File(workingSourceDir, "src/main/resources").takeIf { it.isDirectory } ?: workingSourceDir
-
-                // Parse Java sources (if available) for Registry.register calls and client/server hooks
-                val javaAnalysis = analyzeJavaSources(workingSourceDir)
-                if (javaAnalysis.blocks.isNotEmpty() || javaAnalysis.items.isNotEmpty()) {
-                    logs +=
-                        "Parsed Java source registrations: ${javaAnalysis.blocks.size} block(s), ${javaAnalysis.items.size} item(s)"
-                }
-
-                // Stage 2: 26.3 Asset & Data Upgrade
-                val extraNamespaces = sortedSetOf<String>()
-                var recipesUpgraded = 0
-                var lootTablesUpgraded = 0
-
-                val assetsSrc = File(resRoot, "assets")
-                if (assetsSrc.isDirectory) {
-                    assetsSrc.listFiles()?.filter { it.isDirectory }?.forEach { nsDir ->
-                        val ns = nsDir.name.lowercase()
-                        if (ns != modId && ns != "minecraft") extraNamespaces += ns
-                        nsDir.walkTopDown().filter { it.isFile }.forEach { file ->
-                            val rel = file.relativeTo(assetsSrc).invariantSeparatorsPath.lowercase()
-                            val dest = File(outRoot, "assets/$rel")
-                            dest.parentFile?.mkdirs()
-                            file.copyTo(dest, overwrite = true)
-                        }
-                    }
-                    logs += "Normalized assets/ paths to lowercase."
-                }
-
-                val dataSrc = File(resRoot, "data")
-                if (dataSrc.isDirectory) {
-                    dataSrc.listFiles()?.filter { it.isDirectory }?.forEach { nsDir ->
-                        val ns = nsDir.name.lowercase()
-                        if (ns != modId && ns != "minecraft") extraNamespaces += ns
-                        nsDir.walkTopDown().filter { it.isFile }.forEach { file ->
-                            val relParts = file.relativeTo(dataSrc).invariantSeparatorsPath.lowercase().split('/').toMutableList()
-                            if (relParts.size >= 2) {
-                                val cat = relParts[1]
-                                PLURAL_DATA_RENAMES[cat]?.let { relParts[1] = it }
-                                if (cat == "tags" && relParts.size >= 3) {
-                                    PLURAL_TAG_RENAMES[relParts[2]]?.let { relParts[2] = it }
-                                }
-                            }
-                            val remappedRel = relParts.joinToString("/")
-                            val dest = File(outRoot, "data/$remappedRel")
-                            dest.parentFile?.mkdirs()
-
-                            if (file.extension.equals("json", ignoreCase = true)) {
-                                val rawText = runCatching { file.readText() }.getOrDefault("")
-                                val category = relParts.getOrNull(1)
-                                when (category) {
-                                    "recipe" -> {
-                                        val upgraded = runCatching { upgradeRecipeJson(JSONObject(rawText)).toString(2) }.getOrNull()
-                                        if (upgraded != null) {
-                                            dest.writeText(upgraded + "\n")
-                                            recipesUpgraded++
-                                        } else {
-                                            file.copyTo(dest, overwrite = true)
-                                        }
-                                    }
-                                    "loot_table" -> {
-                                        val upgraded = runCatching { upgradeLootJson(JSONObject(rawText)).toString(2) }.getOrNull()
-                                        if (upgraded != null) {
-                                            dest.writeText(upgraded + "\n")
-                                            lootTablesUpgraded++
-                                        } else {
-                                            file.copyTo(dest, overwrite = true)
-                                        }
-                                    }
-                                    else -> file.copyTo(dest, overwrite = true)
-                                }
-                            } else {
-                                file.copyTo(dest, overwrite = true)
-                            }
-                        }
-                    }
-                    logs +=
-                        "Upgraded data/ to Minecraft 26.3 singular folders ($recipesUpgraded recipe(s), $lootTablesUpgraded loot table(s) converted)."
-                }
-
-                // Stage 3: Java Registry + Blockstates + Models -> Declarative Horizon JSON Conversion
-                val portedBlocks = sortedSetOf<String>()
-                val blockstatesDir = File(outRoot, "assets/$modId/blockstates")
-                val horizonBlockDir = File(outRoot, "data/$modId/horizon/block")
-                horizonBlockDir.mkdirs()
-
-                val allBlockNames = sortedSetOf<String>()
-                allBlockNames.addAll(javaAnalysis.blocks.keys)
-                if (blockstatesDir.isDirectory) {
-                    blockstatesDir
-                        .listFiles { f -> f.isFile && f.extension == "json" }
-                        ?.forEach { allBlockNames += it.nameWithoutExtension.lowercase() }
-                }
-
-                for (bname in allBlockNames) {
-                    val bsFile = File(blockstatesDir, "$bname.json")
-                    val bsJson =
-                        if (bsFile.isFile) runCatching { JSONObject(bsFile.readText()) }.getOrDefault(JSONObject())
-                        else JSONObject()
-                    val jBlock = javaAnalysis.blocks[bname]
-                    val template = inferBlockTemplate(bname, bsJson, jBlock)
-                    val blockObj =
-                        JSONObject().apply {
-                            put("template", template)
-                            put("hardness", jBlock?.hardness ?: 2.0)
-                            put("explosion_resistance", jBlock?.explosionResistance ?: 3.0)
-                            put("requires_tool", jBlock?.requiresTool ?: (template == "minecraft:stone"))
-                            jBlock?.light?.let { put("light", it) }
-                            jBlock?.sounds?.let { put("sounds", it) }
-                            put("item", true)
-                        }
-                    File(horizonBlockDir, "$bname.json").writeText(blockObj.toString(2) + "\n")
-                    portedBlocks += bname
-                }
-
-                val modelsItemDir = File(outRoot, "assets/$modId/models/item")
-                val itemsDispatchDir = File(outRoot, "assets/$modId/items")
-                itemsDispatchDir.mkdirs()
-                val horizonItemDir = File(outRoot, "data/$modId/horizon/item")
-                horizonItemDir.mkdirs()
-
-                val portedItems = sortedSetOf<String>()
-                val candidateItems = sortedSetOf<String>()
-                candidateItems.addAll(javaAnalysis.items.keys)
-                if (modelsItemDir.isDirectory) {
-                    modelsItemDir
-                        .listFiles { f -> f.isFile && f.extension == "json" }
-                        ?.forEach { candidateItems += it.nameWithoutExtension.lowercase() }
-                }
-
-                for (iname in candidateItems) {
-                    val dispatchFile = File(itemsDispatchDir, "$iname.json")
-                    if (!dispatchFile.exists()) {
-                        val dispatchObj =
-                            JSONObject().apply {
-                                put(
-                                    "model",
-                                    JSONObject().apply {
-                                        put("type", "minecraft:model")
-                                        put("model", "$modId:item/$iname")
-                                    },
-                                )
-                            }
-                        dispatchFile.writeText(dispatchObj.toString(2) + "\n")
-                    }
-
-                    if (iname !in portedBlocks) {
-                        val jItem = javaAnalysis.items[iname]
-                        val itemObj =
-                            JSONObject().apply {
-                                put("max_stack_size", jItem?.maxStackSize ?: 64)
-                                jItem?.rarity?.let { put("rarity", it) }
-                                if (jItem?.fireResistant == true) put("fire_resistant", true)
-                                jItem?.craftingRemainder?.let { put("crafting_remainder", it) }
-
-                                val comps = JSONObject()
-                                jItem?.maxDamage?.let { comps.put("minecraft:max_damage", it) }
-                                jItem?.food?.let { food ->
-                                    comps.put(
-                                        "minecraft:food",
-                                        JSONObject().apply {
-                                            put("nutrition", food.nutrition)
-                                            put("saturation", food.saturation)
-                                            put("can_always_eat", food.canAlwaysEat)
-                                        },
-                                    )
-                                }
-                                if (comps.length() > 0) {
-                                    put("components", comps)
-                                }
-                            }
-                        File(horizonItemDir, "$iname.json").writeText(itemObj.toString(2) + "\n")
-                        portedItems += iname
-                    }
-                }
-
-                // Ensure every block with item:true has a 26.3 client item model dispatch
-                for (bname in portedBlocks) {
-                    val dispatchFile = File(itemsDispatchDir, "$bname.json")
-                    if (!dispatchFile.exists()) {
-                        val modelRef =
-                            if (File(modelsItemDir, "$bname.json").exists()) "$modId:item/$bname"
-                            else "$modId:block/$bname"
-                        val dispatchObj =
-                            JSONObject().apply {
-                                put(
-                                    "model",
-                                    JSONObject().apply {
-                                        put("type", "minecraft:model")
-                                        put("model", modelRef)
-                                    },
-                                )
-                            }
-                        dispatchFile.writeText(dispatchObj.toString(2) + "\n")
-                    }
-                }
-
-                // Generate data/<modId>/horizon/creative_tab/main.json
-                val allTabItems = (portedBlocks + portedItems).sorted().map { "$modId:$it" }
-                if (allTabItems.isNotEmpty()) {
-                    val tabDir = File(outRoot, "data/$modId/horizon/creative_tab")
-                    tabDir.mkdirs()
-                    val tabObj =
-                        JSONObject().apply {
-                            put("title", meta.name)
-                            put("icon", allTabItems.first())
-                            put("items", JSONArray(allTabItems))
-                        }
-                    File(tabDir, "main.json").writeText(tabObj.toString(2) + "\n")
-                }
+                val features = scanJavaFeatures(workingSourceDir)
                 logs +=
-                    "Generated Horizon registries: ${portedBlocks.size} block(s), ${portedItems.size} item(s), and 26.3 client item model dispatches."
+                    "Scanned ${features.classes.size} classes, ${features.blocks.size} blocks, ${features.items.size} items."
+                logs += "Detected hooks: ${features.activeHooks().joinToString(", ")}"
 
-                // Stage 4: Java Code -> Rust WASM / ServerMod Translation
-                val wasmTranslation = generateRustWasmIfNeeded(outRoot, modId, meta, javaAnalysis)
-                if (wasmTranslation.generatedWasm) {
-                    copyBundledSdk(File(outRoot, "sdk/horizon-mod-sdk"))
-                    logs +=
-                        "Translated Java gameplay hooks to Rust WASM (src/lib.rs, API ${wasmTranslation.apiVersion}) and bundled horizon-mod-sdk."
+                val outFolderName = customOutputName?.trim()?.ifBlank { null } ?: "$modId-hnmod"
+                val projectDir = File(targetParentDir, outFolderName)
+                if (projectDir.exists()) projectDir.deleteRecursively()
+
+                val mixinDir = File(projectDir, "mixins/$modId")
+                val engineSrcDir = File(mixinDir, "engine/src")
+                val dataDir = File(mixinDir, "data")
+                engineSrcDir.mkdirs()
+                dataDir.mkdirs()
+
+                // 1. Write mixins/<id>/data/port_manifest.json
+                val portManifest =
+                    JSONObject().apply {
+                        put("source", sourceLabel)
+                        put("mod_id", modId)
+                        put("name", meta.name)
+                        put("version", version)
+                        put("detected_hooks", JSONArray(features.activeHooks()))
+                        put("java_classes_count", features.classes.size)
+                        put("java_classes_sample", JSONArray(features.classes.take(50)))
+                        put("blocks_discovered", JSONArray(features.blocks.distinct().sorted()))
+                        put("items_discovered", JSONArray(features.items.distinct().sorted()))
+                    }
+                File(dataDir, "port_manifest.json").writeText(portManifest.toString(2) + "\n")
+
+                val crateName = "${modId.replace('_', '-')}-engine"
+                val crateIdent = "${modId}_engine"
+                val runtimeMod = "${modId}_runtime"
+
+                val injectionsToml = mutableListOf<String>()
+                val helperFiles = linkedMapOf<String, String>()
+                var maxHookApi = 1
+
+                // Standard Options > Mods registration & client tick
+                injectionsToml +=
+                    """
+                    [[injection]]
+                    id = "list"
+                    kind = "HEAD"
+                    target = "horizon_client::game::native_hooks::Game<'_>::native_mods"
+                    helper = "list.rs"
+                    bindings = [
+                      { name = "mods", ty = "&mut Vec<crate::game::native_hooks::NativeMod>", value = "&mut *mods" },
+                    ]
+
+                    [[injection]]
+                    id = "settings"
+                    kind = "HEAD"
+                    target = "horizon_client::game::native_hooks::Game<'_>::native_settings"
+                    helper = "settings.rs"
+                    bindings = [
+                      { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+                      { name = "mod_id", ty = "&str", value = "mod_id" },
+                      { name = "buttons", ty = "&mut Vec<String>", value = "&mut *buttons" },
+                    ]
+
+                    [[injection]]
+                    id = "settings_click"
+                    kind = "HEAD"
+                    target = "horizon_client::game::native_hooks::Game<'_>::native_settings_click"
+                    helper = "settings_click.rs"
+                    bindings = [
+                      { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+                      { name = "mod_id", ty = "&str", value = "mod_id" },
+                      { name = "button", ty = "usize", value = "button" },
+                    ]
+
+                    [[injection]]
+                    id = "tick"
+                    kind = "HEAD"
+                    target = "horizon_client::game::native_hooks::Game<'_>::native_tick"
+                    helper = "tick.rs"
+                    bindings = [
+                      { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+                    ]
+                    """
+                        .trimIndent()
+
+                helperFiles["list.rs"] =
+                    """
+                    {
+                        mods.push(crate::game::native_hooks::NativeMod {
+                            id: ${jsonString(modId)}.to_string(),
+                            name: ${jsonString(meta.name)}.to_string(),
+                            version: ${jsonString(version)}.to_string(),
+                            description: ${jsonString(meta.description)}.to_string(),
+                        });
+                    }
+                    """
+                        .trimIndent() + "\n"
+
+                helperFiles["settings.rs"] =
+                    """
+                    {
+                        let _ = game;
+                        if mod_id == ${jsonString(modId)} {
+                            let status = if $crateIdent::is_enabled() { "ON" } else { "OFF" };
+                            buttons.push(format!("${meta.name.replace("\"", "'")}: {status}"));
+                            buttons.push(format!("HUD Overlay: {}", if $crateIdent::is_hud_enabled() { "Shown" } else { "Hidden" }));
+                        }
+                    }
+                    """
+                        .trimIndent() + "\n"
+
+                helperFiles["settings_click.rs"] =
+                    """
+                    {
+                        let _ = game;
+                        if mod_id == ${jsonString(modId)} {
+                            match button {
+                                0 => { $crateIdent::toggle_enabled(); }
+                                1 => { $crateIdent::toggle_hud(); }
+                                _ => {}
+                            }
+                        }
+                    }
+                    """
+                        .trimIndent() + "\n"
+
+                helperFiles["tick.rs"] =
+                    """
+                    {
+                        let _ = game;
+                        if $crateIdent::is_enabled() {
+                            $crateIdent::on_tick();
+                        }
+                    }
+                    """
+                        .trimIndent() + "\n"
+
+                if (features.hud) {
+                    injectionsToml +=
+                        """
+                        [[injection]]
+                        id = "hud"
+                        kind = "HEAD"
+                        target = "horizon_client::game::native_hooks::Game<'_>::native_hud"
+                        helper = "hud.rs"
+                        bindings = [
+                          { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+                          { name = "shapes", ty = "&mut Vec<crate::game::native_hooks::NativeShape>", value = "&mut *shapes" },
+                        ]
+                        """
+                            .trimIndent()
+                    helperFiles["hud.rs"] =
+                        """
+                        {
+                            if $crateIdent::is_enabled() && $crateIdent::is_hud_enabled() && !game.native_in_menu() {
+                                shapes.push(crate::game::native_hooks::NativeShape::Text {
+                                    text: $crateIdent::hud_label(),
+                                    x: 8.0,
+                                    y: 8.0,
+                                    color: 0xFF7DD3FC,
+                                    scale: 1.0,
+                                    centered: false,
+                                    shadow: true,
+                                });
+                            }
+                        }
+                        """
+                            .trimIndent() + "\n"
                 }
 
-                // Write horizon-mod.toml
-                val authorsToml = meta.authors.joinToString(", ") { "\"${it.replace("\"", "'")}\"" }
-                val capsToml = wasmTranslation.capabilities.joinToString(", ") { "\"$it\"" }
-                val expToml = wasmTranslation.experimental.joinToString(", ") { "\"$it\"" }
-                val nsToml = extraNamespaces.joinToString(", ") { "\"$it\"" }
-                val cleanDesc =
-                    meta.description.lineSequence().firstOrNull()?.trim()?.replace("\"", "'").orEmpty().ifBlank {
-                        "Ported to Horizon by Arse IDE"
-                    }
-
-                val manifestText = buildString {
-                    appendLine("id = \"$modId\"")
-                    appendLine("name = \"${meta.name.replace("\"", "'")}\"")
-                    appendLine("version = \"${meta.version}\"")
-                    appendLine("api = \"${wasmTranslation.apiVersion}\"")
-                    appendLine("description = \"$cleanDesc\"")
-                    appendLine("authors = [$authorsToml]")
-                    if (wasmTranslation.apiVersion == "0.3") {
-                        appendLine("side = \"server\"")
-                    }
-                    if (wasmTranslation.generatedWasm) {
-                        appendLine("entry = \"mod.wasm\"")
-                    }
-                    if (extraNamespaces.isNotEmpty()) {
-                        appendLine("namespaces = [$nsToml]")
-                    }
-                    appendLine("capabilities = [$capsToml]")
-                    if (wasmTranslation.experimental.isNotEmpty()) {
-                        appendLine("experimental = [$expToml]")
-                    }
+                if (features.key) {
+                    injectionsToml +=
+                        """
+                        [[injection]]
+                        id = "key"
+                        kind = "HEAD"
+                        target = "horizon_client::game::native_hooks::Game<'_>::native_key"
+                        helper = "key.rs"
+                        bindings = [
+                          { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+                          { name = "key", ty = "&str", value = "key" },
+                          { name = "pressed", ty = "bool", value = "pressed" },
+                        ]
+                        """
+                            .trimIndent()
+                    helperFiles["key.rs"] =
+                        """
+                        {
+                            if pressed && !game.native_in_menu() {
+                                if let Some(msg) = $crateIdent::on_key_press(key) {
+                                    game.native_chat(&msg);
+                                }
+                            }
+                        }
+                        """
+                            .trimIndent() + "\n"
                 }
-                File(outRoot, "horizon-mod.toml").writeText(manifestText)
 
-                // Copy helper tools into tools/ inside the ported project
-                copyBundledTools(File(outRoot, "tools"))
-
-                var packagedFile: File? = null
-                if (alsoPackageHmod) {
-                    val pkgRes =
-                        HorizonModPackager.packageProject(
-                            projectDir = outRoot,
-                            outputFile = File(outRoot, "$modId.hmod"),
-                            autoFixMissingDispatches = true,
-                        )
-                    if (pkgRes.success) {
-                        packagedFile = pkgRes.archiveFile
-                        logs += pkgRes.message
-                    } else {
-                        logs += "Warning during packaging: ${pkgRes.message}"
-                    }
+                if (features.tooltip) {
+                    maxHookApi = maxOf(maxHookApi, 12)
+                    injectionsToml +=
+                        """
+                        [[injection]]
+                        id = "tooltip"
+                        kind = "HEAD"
+                        target = "horizon_client::game::native_hooks::Game<'_>::native_tooltip"
+                        helper = "tooltip.rs"
+                        bindings = [
+                          { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+                          { name = "stack", ty = "&crate::game::native_hooks::NativeStack", value = "stack" },
+                          { name = "lines", ty = "&mut Vec<crate::game::native_hooks::NativeTooltipLine>", value = "&mut *lines" },
+                        ]
+                        """
+                            .trimIndent()
+                    helperFiles["tooltip.rs"] =
+                        """
+                        {
+                            let _ = (game, stack);
+                            if $crateIdent::is_enabled() {
+                                lines.push(crate::game::native_hooks::NativeTooltipLine {
+                                    text: format!("[${meta.name.replace("\"", "'")}]"),
+                                    color: 0xFF93C5FD,
+                                });
+                            }
+                        }
+                        """
+                            .trimIndent() + "\n"
                 }
+
+                if (features.destroyBlock) {
+                    maxHookApi = maxOf(maxHookApi, 14)
+                    injectionsToml +=
+                        """
+                        [[injection]]
+                        id = "destroy_block"
+                        kind = "HEAD"
+                        target = "horizon_client::game::native_hooks::Game<'_>::native_destroy_block"
+                        helper = "destroy_block.rs"
+                        bindings = [
+                          { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+                          { name = "pos", ty = "[i32; 3]", value = "pos" },
+                          { name = "state", ty = "&str", value = "state" },
+                          { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+                        ]
+                        """
+                            .trimIndent()
+                    helperFiles["destroy_block.rs"] =
+                        """
+                        {
+                            let _ = game;
+                            if !*canceled && $crateIdent::is_enabled() {
+                                if $crateIdent::should_cancel_block_break(pos, state) {
+                                    *canceled = true;
+                                }
+                            }
+                        }
+                        """
+                            .trimIndent() + "\n"
+                }
+
+                if (features.rightClickBlock) {
+                    maxHookApi = maxOf(maxHookApi, 21)
+                    injectionsToml +=
+                        """
+                        [[injection]]
+                        id = "right_click_block"
+                        kind = "HEAD"
+                        target = "horizon_client::game::native_hooks::Game<'_>::native_right_click_block"
+                        helper = "right_click_block.rs"
+                        bindings = [
+                          { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+                          { name = "pos", ty = "[i32; 3]", value = "pos" },
+                          { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+                        ]
+                        """
+                            .trimIndent()
+                    helperFiles["right_click_block.rs"] =
+                        """
+                        {
+                            let _ = game;
+                            if !*canceled && $crateIdent::is_enabled() {
+                                $crateIdent::on_right_click_block(pos);
+                            }
+                        }
+                        """
+                            .trimIndent() + "\n"
+                }
+
+                if (features.command) {
+                    maxHookApi = maxOf(maxHookApi, 35)
+                    injectionsToml +=
+                        """
+                        [[injection]]
+                        id = "commands"
+                        kind = "HEAD"
+                        target = "horizon_client::game::native_hooks::Game<'_>::native_commands"
+                        helper = "commands.rs"
+                        bindings = [
+                          { name = "commands", ty = "&mut Vec<String>", value = "&mut *commands" },
+                        ]
+
+                        [[injection]]
+                        id = "command"
+                        kind = "HEAD"
+                        target = "horizon_client::game::native_hooks::Game<'_>::native_command"
+                        helper = "command.rs"
+                        bindings = [
+                          { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+                          { name = "name", ty = "&str", value = "name" },
+                          { name = "args", ty = "&str", value = "args" },
+                          { name = "ran", ty = "&mut bool", value = "&mut *ran" },
+                        ]
+                        """
+                            .trimIndent()
+                    helperFiles["commands.rs"] =
+                        """
+                        {
+                            commands.push(${jsonString(modId)}.to_string());
+                        }
+                        """
+                            .trimIndent() + "\n"
+                    helperFiles["command.rs"] =
+                        """
+                        {
+                            if name == ${jsonString(modId)} {
+                                let reply = $crateIdent::on_command(args);
+                                game.native_chat(&reply);
+                                *ran = true;
+                            }
+                        }
+                        """
+                            .trimIndent() + "\n"
+                }
+
+                val horizonRev =
+                    Settings.horizon_revision.takeIf { HorizonModValidator.isValidRevision(it) }
+                        ?: HorizonModValidator.DEFAULT_HORIZON_REV
+                val mixinsRev =
+                    Settings.mixins_revision.takeIf { HorizonModValidator.isValidRevision(it) }
+                        ?: HorizonModValidator.DEFAULT_MIXINS_REV
+                val configuredMinHooks = Settings.horizon_hooks_api.coerceAtLeast(1)
+                val finalHooksApi = maxOf(maxHookApi, configuredMinHooks)
+
+                val mixinTomlContent =
+                    buildString {
+                        appendLine("[mod]")
+                        appendLine("id = ${jsonString(modId)}")
+                        appendLine("version = ${jsonString(version)}")
+                        appendLine("priority = 100")
+                        appendLine()
+                        appendLine("[compatibility]")
+                        appendLine("horizon_revision = ${jsonString(horizonRev)}")
+                        appendLine()
+                        appendLine("[[crate]]")
+                        appendLine("id = \"engine\"")
+                        appendLine("path = \"engine\"")
+                        appendLine()
+                        appendLine("[[module]]")
+                        appendLine("id = \"runtime\"")
+                        appendLine("file = \"crates/horizon-client/src/game.rs\"")
+                        appendLine("name = \"$runtimeMod\"")
+                        appendLine("source = \"runtime.rs\"")
+                        appendLine()
+                        append(injectionsToml.joinToString("\n\n"))
+                        appendLine()
+                    }
+                File(mixinDir, "horizon-mixin.toml").writeText(mixinTomlContent)
+                File(mixinDir, "runtime.rs").writeText("pub use $crateIdent::*;\n")
+
+                for ((hName, hCode) in helperFiles) {
+                    File(mixinDir, hName).writeText(hCode)
+                }
+
+                // Write companion crate under mixins/<id>/engine/
+                File(mixinDir, "engine/Cargo.toml").writeText(
+                    """
+                    [package]
+                    name = "$crateName"
+                    version = "$version"
+                    edition = "2024"
+
+                    [dependencies]
+                    """
+                        .trimIndent() + "\n"
+                )
+                File(mixinDir, "engine/README.md").writeText(
+                    "# ${meta.name} ($modId)\n\nPorted from `$sourceLabel` to Horizon `.hnmod`.\n"
+                )
+
+                val safeDisplayName = meta.name.replace("\"", "'")
+                File(engineSrcDir, "lib.rs").writeText(
+                    """
+                    //! Ported engine crate for $safeDisplayName (`$modId`).
+                    //! Discovered ${features.classes.size} Java classes, ${features.blocks.distinct().size} blocks, and ${features.items.distinct().size} items.
+
+                    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+                    static ENABLED: AtomicBool = AtomicBool::new(true);
+                    static HUD_ENABLED: AtomicBool = AtomicBool::new(true);
+                    static TICK_COUNT: AtomicU64 = AtomicU64::new(0);
+
+                    pub fn is_enabled() -> bool {
+                        ENABLED.load(Ordering::Relaxed)
+                    }
+
+                    pub fn toggle_enabled() -> bool {
+                        let next = !is_enabled();
+                        ENABLED.store(next, Ordering::Relaxed);
+                        next
+                    }
+
+                    pub fn is_hud_enabled() -> bool {
+                        HUD_ENABLED.load(Ordering::Relaxed)
+                    }
+
+                    pub fn toggle_hud() -> bool {
+                        let next = !is_hud_enabled();
+                        HUD_ENABLED.store(next, Ordering::Relaxed);
+                        next
+                    }
+
+                    pub fn on_tick() {
+                        TICK_COUNT.fetch_add(1, Ordering::Relaxed);
+                    }
+
+                    pub fn hud_label() -> String {
+                        format!("$safeDisplayName [Active]")
+                    }
+
+                    pub fn on_key_press(key: &str) -> Option<String> {
+                        if key.eq_ignore_ascii_case("key.keyboard.r") {
+                            let on = toggle_enabled();
+                            return Some(format!("$safeDisplayName: {}", if on { "Enabled" } else { "Disabled" }));
+                        }
+                        None
+                    }
+
+                    pub fn should_cancel_block_break(_pos: [i32; 3], _state: &str) -> bool {
+                        false
+                    }
+
+                    pub fn on_right_click_block(_pos: [i32; 3]) {}
+
+                    pub fn on_command(args: &str) -> String {
+                        if args.trim().eq_ignore_ascii_case("toggle") {
+                            let on = toggle_enabled();
+                            format!("$safeDisplayName toggled {}", if on { "ON" } else { "OFF" })
+                        } else {
+                            format!("$safeDisplayName v$version (ticks: {})", TICK_COUNT.load(Ordering::Relaxed))
+                        }
+                    }
+                    """
+                        .trimIndent() + "\n"
+                )
+
+                // Write root horizon-native.json
+                val nativeManifest =
+                    JSONObject().apply {
+                        put("schema", 1)
+                        put("id", modId)
+                        put("version", version)
+                        put("game", "26.3")
+                        put("horizon", horizonRev)
+                        put("mixins", mixinsRev)
+                        put("hooks", finalHooksApi)
+                    }
+                File(projectDir, "horizon-native.json").writeText(nativeManifest.toString(2) + "\n")
+
+                // Copy bundled tools into tools/ for sandbox CLI builds
+                copyBundledTools(File(projectDir, "tools"))
+
+                // Package <id>.hnmod
+                val pkgRes =
+                    HorizonModPackager.packageProject(
+                        projectDir = projectDir,
+                        outputFile = File(projectDir, "$modId.hnmod"),
+                    )
+                logs += pkgRes.message
 
                 PortResult(
-                    success = true,
-                    outputDir = outRoot,
-                    packagedHmod = packagedFile,
+                    success = pkgRes.success,
+                    outputDir = projectDir,
+                    packagedHnmod = pkgRes.archiveFile,
                     modId = modId,
                     modName = meta.name,
-                    version = meta.version,
-                    apiVersion = wasmTranslation.apiVersion,
-                    blocksPorted = portedBlocks.size,
-                    itemsPorted = portedItems.size,
-                    recipesUpgraded = recipesUpgraded,
-                    lootTablesUpgraded = lootTablesUpgraded,
-                    generatedWasmSource = wasmTranslation.generatedWasm,
+                    version = version,
+                    hooksApiLevel = finalHooksApi,
+                    detectedHooks = features.activeHooks(),
+                    classesScanned = features.classes.size,
+                    blocksDiscovered = features.blocks.distinct().size,
+                    itemsDiscovered = features.items.distinct().size,
                     logs = logs,
+                    error = if (pkgRes.success) null else pkgRes.message,
                 )
             } catch (t: Throwable) {
-                failResult(targetParentDir, logs, t.message ?: "Unexpected error while porting mod")
+                failResult(targetParentDir, logs, t.message ?: "Conversion failed")
             } finally {
                 tempExtractDir?.let { runCatching { it.deleteRecursively() } }
             }
@@ -467,57 +658,164 @@ object HorizonModPorter {
         val name: String,
         val version: String,
         val description: String,
-        val authors: List<String>,
     )
 
-    private data class JavaBlockInfo(
-        val template: String? = null,
-        val hardness: Double? = null,
-        val explosionResistance: Double? = null,
-        val light: Int? = null,
-        val requiresTool: Boolean? = null,
-        val sounds: String? = null,
-    )
+    private data class ScannedFeatures(
+        var hud: Boolean = false,
+        var key: Boolean = false,
+        var destroyBlock: Boolean = false,
+        var rightClickBlock: Boolean = false,
+        var useItem: Boolean = false,
+        var tooltip: Boolean = false,
+        var command: Boolean = false,
+        var serverTick: Boolean = false,
+        var livingDamage: Boolean = false,
+        var loot: Boolean = false,
+        val classes: MutableList<String> = mutableListOf(),
+        val blocks: MutableList<String> = mutableListOf(),
+        val items: MutableList<String> = mutableListOf(),
+    ) {
+        fun activeHooks(): List<String> =
+            buildList {
+                add("mods")
+                add("settings")
+                add("settings_click")
+                add("tick")
+                if (hud) add("hud")
+                if (key) add("key")
+                if (tooltip) add("tooltip")
+                if (destroyBlock) add("destroy_block")
+                if (rightClickBlock) add("right_click_block")
+                if (command) {
+                    add("commands")
+                    add("command")
+                }
+            }
+    }
 
-    private data class JavaFoodInfo(
-        val nutrition: Int,
-        val saturation: Double,
-        val canAlwaysEat: Boolean,
-    )
+    private fun parseJavaMetadata(workDir: File, fallbackName: String): ModMetadata {
+        val defaultId = sanitizeModId(fallbackName)
+        val defaultName = fallbackName.replace('-', ' ').replace('_', ' ').replaceFirstChar { it.uppercase() }
+        val defaultDesc = "Ported from $fallbackName to Horizon .hnmod"
 
-    private data class JavaItemInfo(
-        val maxStackSize: Int? = null,
-        val maxDamage: Int? = null,
-        val rarity: String? = null,
-        val fireResistant: Boolean = false,
-        val craftingRemainder: String? = null,
-        val food: JavaFoodInfo? = null,
-    )
+        for (prefix in listOf("", "src/main/resources/")) {
+            val fjson = File(workDir, "${prefix}fabric.mod.json")
+            if (fjson.isFile) {
+                runCatching {
+                    val d = JSONObject(fjson.readText())
+                    val id = sanitizeModId(d.optString("id", defaultId))
+                    val name = d.optString("name", defaultName).ifBlank { defaultName }
+                    val ver = sanitizeVersion(d.optString("version", "0.1.0"))
+                    val desc =
+                        d.optString("description", defaultDesc)
+                            .replace("\n", " ")
+                            .trim()
+                            .ifBlank { defaultDesc }
+                    return ModMetadata(id, name, ver, desc)
+                }
+            }
+        }
 
-    private data class JavaAnalysis(
-        val blocks: Map<String, JavaBlockInfo>,
-        val items: Map<String, JavaItemInfo>,
-        val hasHud: Boolean,
-        val hasKeybind: Boolean,
-        val hasScreen: Boolean,
-        val hasRaycast: Boolean,
-        val hasServerBlockBreak: Boolean,
-        val hasServerBlockUse: Boolean,
-        val hasServerPlayerJoin: Boolean,
-        val hasServerCommands: Boolean,
-        val keybinds: List<Pair<String, String>>,
-        val commands: List<String>,
-    )
+        for (prefix in listOf("", "src/main/resources/")) {
+            for (tomlRel in listOf("META-INF/neoforge.mods.toml", "META-INF/mods.toml")) {
+                val p = File(workDir, "$prefix$tomlRel")
+                if (p.isFile) {
+                    val txt = runCatching { p.readText() }.getOrDefault("")
+                    val mId = Regex("""modId\s*=\s*"([^"]+)"""").find(txt)?.groupValues?.getOrNull(1)
+                    val mName = Regex("""displayName\s*=\s*"([^"]+)"""").find(txt)?.groupValues?.getOrNull(1)
+                    val mVer = Regex("""version\s*=\s*"([^"]+)"""").find(txt)?.groupValues?.getOrNull(1)
+                    val mDesc =
+                        (Regex("""description\s*=\s*'''(.*?)'''""", setOf(RegexOption.DOT_MATCHES_ALL)).find(txt)
+                                ?: Regex("""description\s*=\s*""" + "\"\"\"(.*?)\"\"\"", setOf(RegexOption.DOT_MATCHES_ALL)).find(txt))
+                            ?.groupValues
+                            ?.getOrNull(1)
+                    return ModMetadata(
+                        id = sanitizeModId(mId ?: defaultId),
+                        name = mName?.trim()?.ifBlank { defaultName } ?: defaultName,
+                        version = sanitizeVersion(mVer ?: "0.1.0"),
+                        description = mDesc?.split(Regex("\\s+"))?.joinToString(" ")?.take(200)?.ifBlank { defaultDesc } ?: defaultDesc,
+                    )
+                }
+            }
+        }
 
-    private data class WasmTranslation(
-        val generatedWasm: Boolean,
-        val apiVersion: String,
-        val capabilities: List<String>,
-        val experimental: List<String>,
-    )
+        return ModMetadata(defaultId, defaultName, "0.1.0", defaultDesc)
+    }
 
-    private fun extractJar(jarFile: File, destDir: File) {
-        ZipFile(jarFile).use { zip ->
+    private fun scanJavaFeatures(workDir: File): ScannedFeatures {
+        val features = ScannedFeatures()
+        val blobParts = StringBuilder()
+
+        workDir
+            .walkTopDown()
+            .onEnter { it.name !in setOf(".git", "build", ".gradle", "target", "node_modules") }
+            .filter { it.isFile }
+            .forEach { file ->
+                val rel = file.relativeTo(workDir).invariantSeparatorsPath
+                val fn = file.name
+                when {
+                    fn.endsWith(".class") || fn.endsWith(".java") || fn.endsWith(".kt") -> {
+                        if (fn.endsWith(".class") && '$' !in fn) {
+                            features.classes += rel.removeSuffix(".class")
+                        } else if (fn.endsWith(".java") || fn.endsWith(".kt")) {
+                            features.classes += rel.substringBeforeLast('.')
+                        }
+                        runCatching {
+                            val bytes = file.inputStream().use { it.readNBytes(256_000) }
+                            blobParts.append(String(bytes, Charsets.ISO_8859_1)).append('\n')
+                        }
+                    }
+                    rel.startsWith("assets/") && "/blockstates/" in rel && fn.endsWith(".json") -> {
+                        features.blocks += fn.removeSuffix(".json")
+                    }
+                    rel.startsWith("assets/") && "/models/item/" in rel && fn.endsWith(".json") -> {
+                        features.items += fn.removeSuffix(".json")
+                    }
+                }
+            }
+
+        val text = blobParts.toString()
+        if (listOf("HudRenderCallback", "RenderGuiOverlayEvent", "GuiGraphics", "DrawContext", "InGameHud").any { it in text }) {
+            features.hud = true
+        }
+        if (listOf("KeyBinding", "KeyMapping", "GLFW_KEY_", "InputEvent").any { it in text }) {
+            features.key = true
+        }
+        if (listOf("PlayerBlockBreakEvents", "BreakEvent", "destroyBlock", "playerWillDestroy").any { it in text }) {
+            features.destroyBlock = true
+        }
+        if (listOf("UseBlockCallback", "RightClickBlock", "useWithoutItem", "useItemOn").any { it in text }) {
+            features.rightClickBlock = true
+        }
+        if (listOf("UseItemCallback", "RightClickItem", "ItemStack", "use(").any { it in text }) {
+            features.useItem = true
+        }
+        if (listOf("ItemTooltipCallback", "ItemTooltipEvent", "appendHoverText").any { it in text }) {
+            features.tooltip = true
+        }
+        if (listOf("CommandRegistrationCallback", "RegisterCommandsEvent", "Commands.literal", "CommandManager.literal").any { it in text }) {
+            features.command = true
+        }
+        if (listOf("ServerTickEvents", "ServerTickEvent", "LevelTickEvent").any { it in text }) {
+            features.serverTick = true
+        }
+        if (listOf("LivingIncomingDamageEvent", "LivingHurtEvent", "LivingDamageEvent", "hurtServer").any { it in text }) {
+            features.livingDamage = true
+        }
+        if (listOf("LootTableEvents", "LootTableLoadEvent", "LootPool").any { it in text }) {
+            features.loot = true
+        }
+
+        if (!features.hud && !features.key && !features.destroyBlock && !features.rightClickBlock && !features.tooltip && !features.command) {
+            features.hud = true
+            features.key = true
+        }
+
+        return features
+    }
+
+    private fun extractZipOrJar(archiveFile: File, destDir: File) {
+        ZipFile(archiveFile).use { zip ->
             val entries = zip.entries()
             while (entries.hasMoreElements()) {
                 val entry = entries.nextElement()
@@ -535,614 +833,30 @@ object HorizonModPorter {
         }
     }
 
-    private fun extractMetadata(root: File): ModMetadata {
-        val fabricCandidates =
-            listOf(
-                File(root, "fabric.mod.json"),
-                File(root, "src/main/resources/fabric.mod.json"),
-            )
-        fabricCandidates.firstOrNull { it.isFile }?.let { f ->
-            runCatching {
-                val obj = JSONObject(f.readText())
-                val rawId = obj.optString("id", "ported_mod")
-                val rawName = obj.optString("name", rawId)
-                val rawVer = obj.optString("version", "0.1.0").let { if (it.startsWith("\${")) "0.1.0" else it }
-                val desc = obj.optString("description", "")
-                val authors = mutableListOf<String>()
-                val arr = obj.optJSONArray("authors")
-                if (arr != null) {
-                    for (i in 0 until arr.length()) {
-                        val el = arr.get(i)
-                        when (el) {
-                            is String -> authors += el
-                            is JSONObject -> el.optString("name").takeIf { it.isNotBlank() }?.let { authors += it }
-                        }
-                    }
+    private fun resolveDisplayName(context: Context, uri: Uri): String? {
+        runCatching {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0) return cursor.getString(idx)
                 }
-                return ModMetadata(
-                    id = sanitizeModId(rawId),
-                    name = rawName.ifBlank { "Ported Mod" },
-                    version = rawVer.ifBlank { "0.1.0" },
-                    description = desc,
-                    authors = authors.ifEmpty { listOf("Unknown") },
-                )
             }
         }
-
-        val tomlCandidates =
-            listOf(
-                File(root, "META-INF/neoforge.mods.toml"),
-                File(root, "META-INF/mods.toml"),
-                File(root, "src/main/resources/META-INF/neoforge.mods.toml"),
-                File(root, "src/main/resources/META-INF/mods.toml"),
-            )
-        tomlCandidates.firstOrNull { it.isFile }?.let { f ->
-            val text = runCatching { f.readText() }.getOrDefault("")
-            val modId = Regex("""modId\s*=\s*"([^"]+)"""").find(text)?.groupValues?.getOrNull(1) ?: "ported_mod"
-            val name = Regex("""displayName\s*=\s*"([^"]+)"""").find(text)?.groupValues?.getOrNull(1) ?: modId
-            val version =
-                Regex("""version\s*=\s*"([^"]+)"""").find(text)?.groupValues?.getOrNull(1)?.let {
-                    if (it.contains("\${")) "0.1.0" else it
-                } ?: "0.1.0"
-            val authorsStr = Regex("""authors\s*=\s*"([^"]+)"""").find(text)?.groupValues?.getOrNull(1) ?: "Unknown"
-            val desc =
-                Regex("""description\s*=\s*'''(.*?)'''""", setOf(RegexOption.DOT_MATCHES_ALL))
-                    .find(text)
-                    ?.groupValues
-                    ?.getOrNull(1)
-                    ?.trim()
-                    .orEmpty()
-            return ModMetadata(
-                id = sanitizeModId(modId),
-                name = name,
-                version = version,
-                description = desc,
-                authors = authorsStr.split(',').map { it.trim() }.filter { it.isNotEmpty() }.ifEmpty { listOf("Unknown") },
-            )
-        }
-
-        return ModMetadata(
-            id = sanitizeModId(root.nameWithoutExtension),
-            name = root.nameWithoutExtension.replaceFirstChar { it.uppercase() },
-            version = "0.1.0",
-            description = "Ported to Horizon",
-            authors = listOf("Unknown"),
-        )
+        return uri.lastPathSegment?.substringAfterLast('/')
     }
 
-    private fun upgradeIngredientValue(value: Any?): Any? =
-        when (value) {
-            is String -> VANILLA_ID_RENAMES[value] ?: value
-            is JSONObject -> {
-                if (value.length() == 1 && value.has("item")) {
-                    val item = value.optString("item")
-                    VANILLA_ID_RENAMES[item] ?: item
-                } else if (value.length() == 1 && value.has("tag")) {
-                    "#${value.optString("tag")}"
-                } else {
-                    val copy = JSONObject()
-                    val keys = value.keys()
-                    while (keys.hasNext()) {
-                        val k = keys.next()
-                        copy.put(k, upgradeIngredientValue(value.opt(k)))
-                    }
-                    copy
-                }
-            }
-            is JSONArray -> {
-                val arr = JSONArray()
-                for (i in 0 until value.length()) {
-                    arr.put(upgradeIngredientValue(value.opt(i)))
-                }
-                arr
-            }
-            else -> value
-        }
-
-    private fun upgradeRecipeJson(obj: JSONObject): JSONObject {
-        val out = JSONObject(obj.toString())
-        if (out.has("key") && out.opt("key") is JSONObject) {
-            val keyObj = out.getJSONObject("key")
-            val newKey = JSONObject()
-            val iter = keyObj.keys()
-            while (iter.hasNext()) {
-                val k = iter.next()
-                newKey.put(k, upgradeIngredientValue(keyObj.opt(k)))
-            }
-            out.put("key", newKey)
-        }
-        if (out.has("ingredients") && out.opt("ingredients") is JSONArray) {
-            out.put("ingredients", upgradeIngredientValue(out.getJSONArray("ingredients")))
-        }
-        for (field in listOf("ingredient", "base", "addition", "template")) {
-            if (out.has(field)) {
-                out.put(field, upgradeIngredientValue(out.opt(field)))
-            }
-        }
-        if (out.has("result")) {
-            when (val res = out.opt("result")) {
-                is String -> {
-                    val count = out.optInt("count", 1)
-                    out.remove("count")
-                    out.put(
-                        "result",
-                        JSONObject().apply {
-                            put("id", VANILLA_ID_RENAMES[res] ?: res)
-                            put("count", count)
-                        },
-                    )
-                }
-                is JSONObject -> {
-                    val resCopy = JSONObject(res.toString())
-                    if (resCopy.has("item") && !resCopy.has("id")) {
-                        val itemId = resCopy.optString("item")
-                        resCopy.remove("item")
-                        resCopy.put("id", VANILLA_ID_RENAMES[itemId] ?: itemId)
-                    } else if (resCopy.has("id")) {
-                        val id = resCopy.optString("id")
-                        resCopy.put("id", VANILLA_ID_RENAMES[id] ?: id)
-                    }
-                    out.put("result", resCopy)
-                }
-            }
-        }
-        return out
-    }
-
-    private fun upgradeLootNode(node: Any?): Any? =
-        when (node) {
-            is JSONArray -> {
-                val arr = JSONArray()
-                for (i in 0 until node.length()) {
-                    arr.put(upgradeLootNode(node.opt(i)))
-                }
-                arr
-            }
-            is JSONObject -> {
-                val out = JSONObject()
-                val keys = node.keys()
-                while (keys.hasNext()) {
-                    val k = keys.next()
-                    val v = node.opt(k)
-                    when {
-                        k == "functions" -> out.put("modifier", upgradeLootNode(v))
-                        k == "function" -> out.put("type", upgradeLootNode(v))
-                        k == "conditions" && v is JSONArray -> {
-                            val upgraded = upgradeLootNode(v) as JSONArray
-                            if (upgraded.length() == 1) {
-                                out.put("condition", upgraded.opt(0))
-                            } else if (upgraded.length() > 1) {
-                                out.put(
-                                    "condition",
-                                    JSONObject().apply {
-                                        put("condition", "minecraft:all_of")
-                                        put("terms", upgraded)
-                                    },
-                                )
-                            }
-                        }
-                        else -> out.put(k, upgradeLootNode(v))
-                    }
-                }
-                val name = out.optString("name")
-                if (name in VANILLA_ID_RENAMES) {
-                    out.put("name", VANILLA_ID_RENAMES[name])
-                }
-                out
-            }
-            else -> node
-        }
-
-    private fun upgradeLootJson(obj: JSONObject): JSONObject = upgradeLootNode(obj) as JSONObject
-
-    private fun inferBlockTemplate(name: String, blockstateJson: JSONObject, javaBlock: JavaBlockInfo?): String {
-        javaBlock?.template?.let { return it }
-        val variants = blockstateJson.optJSONObject("variants")
-        val keysJoined =
-            buildString {
-                if (variants != null) {
-                    val iter = variants.keys()
-                    while (iter.hasNext()) append(iter.next()).append(' ')
-                }
-            }
-        if (blockstateJson.has("multipart") && listOf("pipe", "cable", "duct", "conduit", "wire").any { it in name }) {
-            return "minecraft:chorus_plant"
-        }
-        if ("half=" in keysJoined && "shape=" in keysJoined && "facing=" in keysJoined) return "minecraft:oak_stairs"
-        if ("type=bottom" in keysJoined || "type=top" in keysJoined || name.endsWith("_slab")) return "minecraft:oak_slab"
-        if ("half=lower" in keysJoined && "hinge=" in keysJoined) return "minecraft:oak_door"
-        if ("open=" in keysJoined && "half=" in keysJoined && "facing=" in keysJoined) return "minecraft:oak_trapdoor"
-        if ("axis=" in keysJoined || listOf("_log", "_pillar", "_stem", "_wood").any { name.endsWith(it) }) {
-            return "minecraft:oak_log"
-        }
-        if ("lit=" in keysJoined && "facing=" in keysJoined) return "minecraft:furnace"
-        if (name.endsWith("_fence")) return "minecraft:oak_fence"
-        if (name.endsWith("_wall")) return "minecraft:cobblestone_wall"
-        if (name.endsWith("_glass") || name.endsWith("_pane") || "glass" in name) return "minecraft:glass"
-        if (name.endsWith("_planks")) return "minecraft:oak_planks"
-        return "minecraft:stone"
-    }
-
-    private fun analyzeJavaSources(root: File): JavaAnalysis {
-        val blocks = linkedMapOf<String, JavaBlockInfo>()
-        val items = linkedMapOf<String, JavaItemInfo>()
-        val keybinds = mutableListOf<Pair<String, String>>()
-        val commands = mutableListOf<String>()
-
-        val javaFiles = root.walkTopDown().filter { it.isFile && it.extension == "java" }.toList()
-        if (javaFiles.isEmpty()) {
-            return JavaAnalysis(
-                blocks = blocks,
-                items = items,
-                hasHud = false,
-                hasKeybind = false,
-                hasScreen = false,
-                hasRaycast = false,
-                hasServerBlockBreak = false,
-                hasServerBlockUse = false,
-                hasServerPlayerJoin = false,
-                hasServerCommands = false,
-                keybinds = keybinds,
-                commands = commands,
-            )
-        }
-
-        val combined = javaFiles.joinToString("\n") { runCatching { it.readText() }.getOrDefault("") }
-
-        val blockRegRegex =
-            Regex(
-                """(?:Registry\.register\s*\(\s*(?:BuiltInRegistries|Registries)\.BLOCK[^,]*,|registerBlock\s*\(|BLOCKS\.register\s*\()\s*(?:new\s+ResourceLocation\([^,]+,\s*"([a-z0-9_]+)"\)|Identifier\.of\([^,]+,\s*"([a-z0-9_]+)"\)|"([a-z0-9_]+)")\s*,\s*([^;]+);"""
-            )
-        blockRegRegex.findAll(combined).forEach { m ->
-            val bname =
-                (m.groupValues[1].ifEmpty { m.groupValues[2] }.ifEmpty { m.groupValues[3] }).trim().lowercase()
-            val expr = m.groupValues[4]
-            if (bname.isNotEmpty()) {
-                val template =
-                    when {
-                        "StairBlock" in expr || "StairsBlock" in expr -> "minecraft:oak_stairs"
-                        "SlabBlock" in expr -> "minecraft:oak_slab"
-                        "DoorBlock" in expr -> "minecraft:oak_door"
-                        "TrapDoorBlock" in expr || "TrapdoorBlock" in expr -> "minecraft:oak_trapdoor"
-                        "FenceBlock" in expr -> "minecraft:oak_fence"
-                        "WallBlock" in expr -> "minecraft:cobblestone_wall"
-                        "RotatedPillarBlock" in expr || "PillarBlock" in expr -> "minecraft:oak_log"
-                        "FurnaceBlock" in expr || "AbstractFurnaceBlock" in expr -> "minecraft:furnace"
-                        "PipeBlock" in expr || "ChorusPlantBlock" in expr -> "minecraft:chorus_plant"
-                        else -> null
-                    }
-                val sm =
-                    Regex("""\.strength\s*\(\s*([0-9.]+)\s*[fF]?(?:\s*,\s*([0-9.]+)\s*[fF]?)?\s*\)""").find(expr)
-                val hardness = sm?.groupValues?.getOrNull(1)?.toDoubleOrNull()
-                val resistance = sm?.groupValues?.getOrNull(2)?.takeIf { it.isNotEmpty() }?.toDoubleOrNull() ?: hardness
-                val light =
-                    Regex("""(?:luminance|lightLevel)\s*\([^)]*?([0-9]+)\s*\)""")
-                        .find(expr)
-                        ?.groupValues
-                        ?.getOrNull(1)
-                        ?.toIntOrNull()
-                        ?.coerceIn(0, 15)
-                val reqTool =
-                    if ("requiresCorrectToolForDrops" in expr || "requiresTool" in expr) true else null
-                val soundKey =
-                    Regex("""\.(?:sounds|sound)\s*\(\s*(?:BlockSoundGroup|SoundType)\.([A-Z_]+)\s*\)""")
-                        .find(expr)
-                        ?.groupValues
-                        ?.getOrNull(1)
-                blocks[bname] =
-                    JavaBlockInfo(
-                        template = template,
-                        hardness = hardness,
-                        explosionResistance = resistance,
-                        light = light,
-                        requiresTool = reqTool,
-                        sounds = soundKey?.let { SOUND_MAP[it] },
-                    )
-            }
-        }
-
-        val itemRegRegex =
-            Regex(
-                """(?:Registry\.register\s*\(\s*(?:BuiltInRegistries|Registries)\.ITEM[^,]*,|registerItem\s*\(|ITEMS\.register\s*\()\s*(?:new\s+ResourceLocation\([^,]+,\s*"([a-z0-9_]+)"\)|Identifier\.of\([^,]+,\s*"([a-z0-9_]+)"\)|"([a-z0-9_]+)")\s*,\s*([^;]+);"""
-            )
-        itemRegRegex.findAll(combined).forEach { m ->
-            val iname =
-                (m.groupValues[1].ifEmpty { m.groupValues[2] }.ifEmpty { m.groupValues[3] }).trim().lowercase()
-            val expr = m.groupValues[4]
-            if (iname.isNotEmpty()) {
-                val maxStack =
-                    Regex("""\.(?:stacksTo|maxCount)\s*\(\s*([0-9]+)\s*\)""")
-                        .find(expr)
-                        ?.groupValues
-                        ?.getOrNull(1)
-                        ?.toIntOrNull()
-                        ?.coerceIn(1, 64)
-                val maxDmg =
-                    Regex("""\.(?:durability|maxDamage)\s*\(\s*([0-9]+)\s*\)""")
-                        .find(expr)
-                        ?.groupValues
-                        ?.getOrNull(1)
-                        ?.toIntOrNull()
-                val rarity =
-                    Regex("""\.rarity\s*\(\s*Rarity\.([A-Z_]+)\s*\)""")
-                        .find(expr)
-                        ?.groupValues
-                        ?.getOrNull(1)
-                        ?.lowercase()
-                val foodMatch =
-                    Regex(
-                            """nutrition\s*\(\s*([0-9]+)\s*\).*?saturation(?:Modifier)?\s*\(\s*([0-9.]+)\s*[fF]?\s*\)""",
-                            setOf(RegexOption.DOT_MATCHES_ALL),
-                        )
-                        .find(expr)
-                val food =
-                    foodMatch?.let {
-                        JavaFoodInfo(
-                            nutrition = it.groupValues[1].toIntOrNull() ?: 4,
-                            saturation = it.groupValues[2].toDoubleOrNull() ?: 0.3,
-                            canAlwaysEat = "alwaysEdible" in expr || "alwaysEat" in expr,
-                        )
-                    }
-                items[iname] =
-                    JavaItemInfo(
-                        maxStackSize = if (maxDmg != null) 1 else maxStack,
-                        maxDamage = maxDmg,
-                        rarity = rarity,
-                        fireResistant = "fireResistant" in expr,
-                        food = food,
-                    )
-            }
-        }
-
-        val hasHud = listOf("HudRenderCallback", "InGameHud", "GuiGraphics", "DrawContext").any { it in combined }
-        val hasKeybind = listOf("KeyBindingHelper", "KeyMapping", "GLFW.GLFW_KEY_").any { it in combined }
-        val hasScreen = listOf("Screen", "HandledScreen", "AbstractContainerScreen").any { it in combined }
-        val hasRaycast = listOf("crosshairTarget", "hitResult", "BlockHitResult", "raycast").any { it in combined }
-        val hasServerBlockBreak = listOf("PlayerBlockBreakEvents", "BreakEvent", "onBlockBreak").any { it in combined }
-        val hasServerBlockUse = listOf("UseBlockCallback", "RightClickBlock", "useOnBlock").any { it in combined }
-        val hasServerPlayerJoin =
-            listOf("ServerPlayConnectionEvents.JOIN", "PlayerLoggedInEvent", "onPlayerJoin").any { it in combined }
-        val hasServerCommands =
-            listOf("CommandRegistrationCallback", "RegisterCommandsEvent", "CommandManager.literal").any {
-                it in combined
-            }
-
-        Regex("""new\s+(?:KeyBinding|KeyMapping)\s*\(\s*"([^"]+)"\s*,[^,]+,\s*GLFW\.GLFW_KEY_([A-Z0-9_]+)""")
-            .findAll(combined)
-            .forEach { km ->
-                keybinds += km.groupValues[1] to "Key${km.groupValues[2].lowercase().replaceFirstChar { it.uppercase() }}"
-            }
-
-        Regex("""literal\s*\(\s*"([a-z0-9_-]+)"\s*\)""").findAll(combined).forEach { cm ->
-            val cmd = cm.groupValues[1]
-            if (cmd !in commands) commands += cmd
-        }
-
-        return JavaAnalysis(
-            blocks = blocks,
-            items = items,
-            hasHud = hasHud,
-            hasKeybind = hasKeybind,
-            hasScreen = hasScreen,
-            hasRaycast = hasRaycast,
-            hasServerBlockBreak = hasServerBlockBreak,
-            hasServerBlockUse = hasServerBlockUse,
-            hasServerPlayerJoin = hasServerPlayerJoin,
-            hasServerCommands = hasServerCommands,
-            keybinds = keybinds,
-            commands = commands,
-        )
-    }
-
-    private fun generateRustWasmIfNeeded(
-        outRoot: File,
-        modId: String,
-        meta: ModMetadata,
-        analysis: JavaAnalysis,
-    ): WasmTranslation {
-        val hasServer =
-            analysis.hasServerBlockBreak ||
-                analysis.hasServerBlockUse ||
-                analysis.hasServerPlayerJoin ||
-                analysis.hasServerCommands
-        val hasClient = analysis.hasHud || analysis.hasKeybind || analysis.hasScreen || analysis.hasRaycast
-
-        if (!hasClient && !hasServer) {
-            return WasmTranslation(
-                generatedWasm = false,
-                apiVersion = "0.2",
-                capabilities = listOf("registries"),
-                experimental = emptyList(),
-            )
-        }
-
-        val srcDir = File(outRoot, "src")
-        srcDir.mkdirs()
-
-        File(outRoot, "Cargo.toml").writeText(
-            """
-            [package]
-            name = "$modId"
-            version = "${meta.version}"
-            edition = "2021"
-
-            [lib]
-            crate-type = ["cdylib", "rlib"]
-
-            [dependencies]
-            horizon-mod-sdk = { path = "sdk/horizon-mod-sdk" }
-            """
-                .trimIndent() + "\n"
-        )
-
-        if (hasServer && !hasClient) {
-            val cmds = analysis.commands.ifEmpty { listOf(modId) }.take(4).joinToString(", ") { "\"$it\"" }
-            File(srcDir, "lib.rs").writeText(
-                """
-                use horizon_mod_sdk::{
-                    commands, export_server_mod, log, players, storage, world, BlockBreakEvent, BlockUseEvent,
-                    CommandContext, CommandResult, EventOutcome, PlayerJoinEvent, ServerMod,
-                };
-
-                #[derive(Default)]
-                pub struct PortedServerMod;
-
-                impl ServerMod for PortedServerMod {
-                    fn init(&mut self) -> Result<(), String> {
-                        for cmd in [$cmds] {
-                            let _ = commands::register(cmd, "Ported command from ${meta.name}", &[]);
-                        }
-                        log::info("${meta.name} server WASM initialized");
-                        Ok(())
-                    }
-
-                    fn on_player_join(&mut self, event: PlayerJoinEvent) {
-                        let _ = players::send_message(&event.player.name, "Welcome to ${meta.name}!");
-                    }
-
-                    fn on_block_break(&mut self, event: BlockBreakEvent) -> EventOutcome {
-                        log::debug(&format!(
-                            "Block broken: {} at ({}, {}, {})",
-                            event.block_id, event.pos.x, event.pos.y, event.pos.z
-                        ));
-                        EventOutcome::Continue
-                    }
-
-                    fn on_block_use(&mut self, event: BlockUseEvent) -> EventOutcome {
-                        if event.is_sneaking {
-                            if let Ok(actual) = world::get_block_id(event.pos) {
-                                let _ = players::send_action_bar(&event.player.name, &format!("Inspecting {actual}"));
-                            }
-                        }
-                        EventOutcome::Continue
-                    }
-
-                    fn on_command(&mut self, ctx: CommandContext) -> CommandResult {
-                        let _ = storage::set("last_command_sender", ctx.sender.name.as_bytes());
-                        CommandResult::Success(format!("[${meta.name}] Executed /{}", ctx.command))
-                    }
-                }
-
-                export_server_mod!(PortedServerMod);
-                """
-                    .trimIndent() + "\n"
-            )
-            return WasmTranslation(
-                generatedWasm = true,
-                apiVersion = "0.3",
-                capabilities = listOf("registries", "events", "world", "players", "commands", "storage"),
-                experimental = listOf("world", "players"),
-            )
-        }
-
-        val defaultKey = analysis.keybinds.firstOrNull()?.second ?: "KeyR"
-        File(srcDir, "lib.rs").writeText(
-            """
-            use horizon_mod_sdk::{
-                export_mod, game, hud, input, log, render, storage, Action, Anchor, InputEvent, KeybindId,
-                Mod, RenderContext, UiEvent,
-            };
-
-            pub struct PortedClientMod {
-                toggle_key: Option<KeybindId>,
-                hud_enabled: bool,
-            }
-
-            impl Default for PortedClientMod {
-                fn default() -> Self {
-                    Self {
-                        toggle_key: None,
-                        hud_enabled: true,
-                    }
-                }
-            }
-
-            impl Mod for PortedClientMod {
-                fn init(&mut self) -> Result<(), String> {
-                    if let Some(saved) = storage::get("hud_enabled") {
-                        self.hud_enabled = saved != b"0";
-                    }
-                    self.toggle_key = input::register_keybind(
-                        "$modId.toggle_hud",
-                        "Toggle ${meta.name} HUD",
-                        "$defaultKey",
-                        "${meta.name}",
-                    )
-                    .ok();
-                    log::info("${meta.name} client WASM initialized");
-                    Ok(())
-                }
-
-                fn tick(&mut self, _dt: f32) {
-                    if !self.hud_enabled {
-                        let _ = hud::remove(1);
-                        return;
-                    }
-                    let label = if let Some(hit) = game::raycast(5.0) {
-                        format!("[${meta.name}] Target: {}", hit.block_id)
-                    } else {
-                        "[${meta.name}] Active".to_string()
-                    };
-                    let _ = hud::text(1, &label, Anchor::TopLeft, 8.0, 8.0, 1.0, 0xFF55FFAA);
-                }
-
-                fn on_render(&mut self, _ctx: RenderContext) {
-                    if self.hud_enabled {
-                        let _ = render::draw_rect(6.0, 6.0, 180.0, 18.0, 0x66000000);
-                    }
-                }
-
-                fn on_input(&mut self, event: InputEvent) -> bool {
-                    if event.action == Action::Press && self.toggle_key == Some(event.keybind) {
-                        self.hud_enabled = !self.hud_enabled;
-                        let _ = storage::set("hud_enabled", if self.hud_enabled { b"1" } else { b"0" });
-                        return true;
-                    }
-                    false
-                }
-
-                fn on_ui_event(&mut self, _event: UiEvent) {}
-            }
-
-            export_mod!(PortedClientMod);
-            """
-                .trimIndent() + "\n"
-        )
-        return WasmTranslation(
-            generatedWasm = true,
-            apiVersion = "0.2",
-            capabilities = listOf("registries", "hud", "render", "ui", "input", "storage"),
-            experimental = listOf("ui", "render", "input"),
-        )
-    }
-
-    fun copyBundledSdk(targetSdkDir: File) {
-        val assetPrefix = "horizon/sdk/horizon-mod-sdk"
-        val files =
-            listOf(
-                "Cargo.toml",
-                "src/lib.rs",
-                "wit/horizon.wit",
-            )
-        files.forEach { rel ->
-            copyAssetFile("$assetPrefix/$rel", File(targetSdkDir, rel))
-        }
-    }
+    private fun jsonString(s: String): String = JSONObject.quote(s)
 
     fun copyBundledTools(targetToolsDir: File) {
         val assetPrefix = "horizon/tools"
-        listOf("package_hmod.py", "port_java_jar_to_hmod.py").forEach { name ->
+        listOf("port_java_to_hnmod.py", "validate_and_pack_hnmod.py").forEach { name ->
             val dest = File(targetToolsDir, name)
-            copyAssetFile("$assetPrefix/$name", dest)
-            runCatching { dest.setExecutable(true, false) }
-        }
-    }
-
-    private fun copyAssetFile(assetPath: String, destFile: File) {
-        runCatching {
-            destFile.parentFile?.mkdirs()
-            application!!.assets.open(assetPath).use { input ->
-                destFile.outputStream().use { output -> input.copyTo(output) }
+            runCatching {
+                dest.parentFile?.mkdirs()
+                application!!.assets.open("$assetPrefix/$name").use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                dest.setExecutable(true, false)
             }
         }
     }
@@ -1151,16 +865,15 @@ object HorizonModPorter {
         PortResult(
             success = false,
             outputDir = targetParentDir,
-            packagedHmod = null,
+            packagedHnmod = null,
             modId = "",
             modName = "",
             version = "",
-            apiVersion = "",
-            blocksPorted = 0,
-            itemsPorted = 0,
-            recipesUpgraded = 0,
-            lootTablesUpgraded = 0,
-            generatedWasmSource = false,
+            hooksApiLevel = 1,
+            detectedHooks = emptyList(),
+            classesScanned = 0,
+            blocksDiscovered = 0,
+            itemsDiscovered = 0,
             logs = logs + "ERROR: $message",
             error = message,
         )

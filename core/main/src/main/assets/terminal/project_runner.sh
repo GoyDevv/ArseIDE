@@ -1,19 +1,15 @@
-# project_runner.sh — project-aware run/build, executed inside the Ubuntu sandbox.
-#
-# Invoked by com.goydevv.arseide.runner.ProjectRunner.
+# project_runner.sh — background build & run script inside the Ubuntu sandbox.
 #
 # Args:
-#   $1 = project type   (DetectedProjectType enum name: HORIZON_MOD, HORIZON_MIXIN_MOD,
-#                         PYTHON, NODE, FABRIC_MOD, FORGE_MOD, GRADLE, ANDROID, SYNC, RUST, GO, WEB)
-#   $2 = project dir     (absolute path; already the working directory)
-#   $3 = entry file      (absolute path of the currently open file, optional)
-#   $4 = gradle args     (extra flags for gradle builds, space-separated; optional)
-#   $5 = build type      (debug|release; Android picks assembleDebug/assembleRelease)
+#   $1 = project type   (HORIZON_MIXIN_MOD, PYTHON, NODE, FABRIC_MOD, FORGE_MOD, GRADLE, ANDROID, SYNC, RUST, GO, WEB)
+#   $2 = project dir     (absolute path)
+#   $3 = entry file      (optional)
+#   $4 = gradle args     (optional)
+#   $5 = build type      (debug|release)
 
 source "$LOCAL/bin/utils"
 
 export DEBIAN_FRONTEND=noninteractive
-# Bound child processes and enable Gradle build caching to prevent Android 12+ Phantom Process Killer
 export GRADLE_OPTS="${GRADLE_OPTS:--Xmx1536m -Dfile.encoding=UTF-8 -Dorg.gradle.caching=true -Dorg.gradle.workers.max=2 -Dkotlin.compiler.execution.strategy=in-process}"
 export CARGO_BUILD_JOBS=2
 export RAYON_NUM_THREADS=2
@@ -52,22 +48,21 @@ esac
 show_result() {
   local code="$1"
   if [ "$code" -eq 0 ]; then
-    printf '\n\033[1;42m  DONE  \033[0m \033[1;32mFinished successfully (exit %s)\033[0m\n' "$code"
+    printf '\n\033[1;42m  DONE  \033[0m \033[1;32mFinished (exit %s)\033[0m\n' "$code"
   else
-    printf '\n\033[1;41m FAILED \033[0m \033[1;31mProcess exited with code %s\033[0m\n' "$code"
+    printf '\n\033[1;41m FAILED \033[0m \033[1;31mExited with code %s\033[0m\n' "$code"
   fi
   return "$code"
 }
 
 need() {
   if ! command_exists "$1"; then
-    error "Required tool '$1' ($2) is not installed in the sandbox."
-    warn  "Open the Dependencies dialog (the download icon in the editor toolbar) and install it, then run again."
+    error "Required tool '$1' ($2) is not installed."
+    warn  "Open Settings > Toolchain & Dependencies to install it."
     exit 127
   fi
 }
 
-# Ensure global ~/.gradle/gradle.properties enables build caching & limits workers
 ensure_gradle_cache_config() {
   mkdir -p "$HOME/.gradle"
   local gp="$HOME/.gradle/gradle.properties"
@@ -109,9 +104,9 @@ ensure_project_jdk() {
   local jvm_dir
   jvm_dir=$(ls -d /usr/lib/jvm/java-${req_jdk}-openjdk* 2>/dev/null | head -1)
   if [ -z "$jvm_dir" ] || [ ! -x "$jvm_dir/bin/javac" ]; then
-    info "JDK $req_jdk required by project — installing openjdk-${req_jdk}-jdk ..."
+    info "Installing openjdk-${req_jdk}-jdk ..."
     apt-get update -y && apt-get install -y "openjdk-${req_jdk}-jdk" || {
-      warn "Could not install openjdk-${req_jdk}-jdk via apt; falling back to system Java."
+      warn "Could not install openjdk-${req_jdk}-jdk; using default Java."
     }
     jvm_dir=$(ls -d /usr/lib/jvm/java-${req_jdk}-openjdk* 2>/dev/null | head -1)
   fi
@@ -139,11 +134,11 @@ gradle_build() {
   ensure_project_jdk
   need java "JDK"
   if [ ! -f ./gradlew ]; then
-    error "gradlew not found in the project root. This Gradle project is missing its wrapper."
+    error "gradlew not found in project root."
     exit 1
   fi
   chmod +x ./gradlew 2>/dev/null
-  info "Building with ./gradlew build $GRADLE_ARGS ..."
+  info "Running ./gradlew build $GRADLE_ARGS ..."
   run_gradlew build $GRADLE_ARGS
   show_result $?
 }
@@ -166,7 +161,7 @@ setup_android_sdk() {
       fi
     fi
   else
-    warn "Android SDK not found. Open the Dependencies dialog (download icon) and install 'Android SDK', then run again."
+    warn "Android SDK not found. Install 'Android SDK' from Dependencies."
   fi
 }
 
@@ -180,7 +175,7 @@ ensure_android_sdk() {
   ensure_gradle_cache_config
 
   if [ ! -x "$SDKM" ] || [ ! -d "$ANDROID_HOME/platform-tools" ]; then
-    info "Android SDK not found — downloading it now (this can take a while) ..."
+    info "Downloading Android SDK command-line tools ..."
     apt-get update -y && apt-get install -y wget curl unzip aapt openjdk-17-jdk openjdk-21-jdk || {
       error "Could not install prerequisites (wget/unzip/aapt/JDK)."
       cd "$proj" 2>/dev/null
@@ -231,7 +226,7 @@ ensure_android_sdk() {
   fi
   if [ -n "$CSDK" ] && [ ! -d "$ANDROID_HOME/platforms/android-$CSDK" ]; then
     info "Installing platform android-$CSDK ..."
-    "$SDKM" --sdk_root="$ANDROID_HOME" "platforms;android-$CSDK" || warn "Could not install platform android-$CSDK; Gradle may fetch it during the build."
+    "$SDKM" --sdk_root="$ANDROID_HOME" "platforms;android-$CSDK" || warn "Could not install platform android-$CSDK."
   fi
 
   if [ ! -d "$ANDROID_HOME/build-tools" ] || [ -z "$(ls -A "$ANDROID_HOME/build-tools" 2>/dev/null)" ]; then
@@ -239,7 +234,7 @@ ensure_android_sdk() {
     BT=$("$SDKM" --sdk_root="$ANDROID_HOME" --list 2>/dev/null | grep -oE 'build-tools;[0-9.]+' | sort -V | tail -1)
     [ -z "$BT" ] && BT='build-tools;35.0.0'
     info "Installing $BT ..."
-    "$SDKM" --sdk_root="$ANDROID_HOME" "$BT" || warn "Could not install $BT; Gradle may fetch it during the build."
+    "$SDKM" --sdk_root="$ANDROID_HOME" "$BT" || warn "Could not install $BT."
   fi
 
   if [ "$ARCH" != "x86_64" ] && command_exists aapt2; then
@@ -257,20 +252,37 @@ ensure_android_sdk() {
 # --- per-type dispatch -----------------------------------------------------
 
 case "$TYPE" in
-  HORIZON_MOD | HORIZON_MIXIN_MOD)
+  HORIZON_MIXIN_MOD)
     need python3 "Python 3"
-    if [ -f Cargo.toml ] && [ -f horizon-mod.toml ]; then
-      need cargo "Rust (cargo)"
-      if command_exists rustup; then
-        rustup target add wasm32-unknown-unknown >/dev/null 2>&1 || true
+    # Check companion crate with cargo check if present
+    for cargo_manifest in mixins/*/engine/Cargo.toml; do
+      if [ -f "$cargo_manifest" ]; then
+        if command_exists cargo; then
+          info "Compiling companion crate ($cargo_manifest) with cargo check ..."
+          cargo check --manifest-path "$cargo_manifest" || {
+            show_result $?
+            exit 1
+          }
+        elif command_exists rustc; then
+          lib_rs="$(dirname "$cargo_manifest")/src/lib.rs"
+          if [ -f "$lib_rs" ]; then
+            info "Checking companion crate ($lib_rs) with rustc ..."
+            rustc --crate-type lib --emit=metadata -o /tmp/hnmod_engine.rmeta "$lib_rs" || {
+              show_result $?
+              exit 1
+            }
+            rm -f /tmp/hnmod_engine.rmeta
+          fi
+        fi
       fi
-    fi
-    if [ -f tools/package_hmod.py ]; then
-      info "Validating & packaging Horizon Mod with tools/package_hmod.py ..."
-      python3 tools/package_hmod.py .
+    done
+
+    if [ -f tools/validate_and_pack_hnmod.py ]; then
+      info "Validating & packaging Horizon .hnmod bundle ..."
+      python3 tools/validate_and_pack_hnmod.py .
       show_result $?
     else
-      error "tools/package_hmod.py not found in project."
+      error "tools/validate_and_pack_hnmod.py not found in project."
       show_result 1
     fi
     ;;
@@ -285,14 +297,14 @@ case "$TYPE" in
       done
     fi
     if [ -z "$target" ]; then
-      error "No Python entry point found (looked for the open file, main.py, app.py, run.py, manage.py)."
+      error "No Python entry point found."
       exit 1
     fi
     if [ -s requirements.txt ]; then
-      info "Installing dependencies from requirements.txt ..."
+      info "Installing requirements.txt ..."
       python3 -m pip install --break-system-packages -r requirements.txt 2>/dev/null \
         || python3 -m pip install -r requirements.txt \
-        || warn "pip install failed; running anyway."
+        || warn "pip install failed; continuing."
     fi
     info "Running: python3 $target"
     python3 "$target"
@@ -305,7 +317,7 @@ case "$TYPE" in
       need npm "npm"
       if [ ! -d node_modules ] && grep -qE '"(dependencies|devDependencies)"' package.json; then
         info "Installing npm dependencies ..."
-        npm install || warn "npm install failed; running anyway."
+        npm install || warn "npm install failed; continuing."
       fi
       if grep -q '"start"' package.json; then
         info "Running: npm start"
@@ -333,7 +345,7 @@ case "$TYPE" in
     need java "JDK"
     setup_android_sdk
     if [ ! -f ./gradlew ]; then
-      error "gradlew not found in the project root. This Android project is missing its wrapper."
+      error "gradlew not found in project root."
       exit 1
     fi
     if [ "$BUILD_TYPE" = "release" ]; then
@@ -351,9 +363,8 @@ case "$TYPE" in
       if [ -n "$apk" ]; then
         apk_abs="$(cd "$(dirname "$apk")" 2>/dev/null && pwd)/$(basename "$apk")"
         info "APK built: $apk_abs"
-        info "Installing… (confirm the system prompt)"
       else
-        warn "Build succeeded but no APK was found under app/build/outputs/apk/$OUT_DIR/."
+        warn "Build succeeded, no APK found under app/build/outputs/apk/$OUT_DIR/."
       fi
     fi
     show_result $code
@@ -364,10 +375,10 @@ case "$TYPE" in
     need java "JDK"
     setup_android_sdk
     if [ ! -f ./gradlew ]; then
-      error "gradlew not found in the project root."
+      error "gradlew not found in project root."
       exit 1
     fi
-    info "Syncing Gradle dependencies (./gradlew --refresh-dependencies tasks $GRADLE_ARGS) ..."
+    info "Syncing Gradle dependencies ..."
     run_gradlew --refresh-dependencies tasks $GRADLE_ARGS
     show_result $?
     ;;
@@ -387,7 +398,7 @@ case "$TYPE" in
     ;;
 
   *)
-    error "This project type ($TYPE) is not runnable from the run button."
+    error "Project type ($TYPE) is not runnable."
     exit 1
     ;;
 esac

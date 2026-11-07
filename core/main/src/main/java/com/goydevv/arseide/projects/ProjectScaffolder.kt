@@ -2,15 +2,16 @@ package com.goydevv.arseide.projects
 
 import com.goydevv.arseide.horizon.HorizonModPackager
 import com.goydevv.arseide.horizon.HorizonModPorter
+import com.goydevv.arseide.horizon.HorizonModValidator
+import com.goydevv.arseide.settings.Settings
 import com.goydevv.arseide.utils.application
 import java.io.File
-import java.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.eclipse.jgit.api.Git
 
 /**
- * Writes the real files for a [ProjectConfig] onto disk.
+ * Scaffolds new projects onto disk.
  */
 object ProjectScaffolder {
 
@@ -20,27 +21,24 @@ object ProjectScaffolder {
         data class Failure(val message: String, val cause: Throwable? = null) : Result
     }
 
-    /** 16x16 valid RGBA PNG placeholder texture for scaffolded Horizon blocks and items. */
-    private const val PLACEHOLDER_PNG_B64 =
-        "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFUlEQVR4nGNgYPjPgBsw4dWj4QEAAP//AwD9cQFJ3m3CAAAAAElFTkSuQmCC"
-
     suspend fun scaffold(config: ProjectConfig): Result =
         withContext(Dispatchers.IO) {
             runCatching {
                     val root = File(config.parentDir, config.name)
                     if (root.exists()) {
-                        return@withContext Result.Failure("A project named \"${config.name}\" already exists here.")
+                        return@withContext Result.Failure("A project named \"${config.name}\" already exists.")
                     }
                     if (!root.mkdirs()) {
                         return@withContext Result.Failure(
-                            "Could not create project directory. Check storage permissions for ${config.parentDir.absolutePath}."
+                            "Could not create project directory at ${config.parentDir.absolutePath}."
                         )
                     }
 
                     val warning: String? =
                         when (config.template) {
-                            ProjectTemplate.NONE -> {
-                                scaffoldNone(root, config)
+                            ProjectTemplate.MINECRAFT_MOD -> scaffoldMinecraft(root, config)
+                            ProjectTemplate.ANDROID_COMPOSE -> {
+                                scaffoldAndroidCompose(root, config)
                                 null
                             }
                             ProjectTemplate.PYTHON3 -> {
@@ -59,25 +57,20 @@ object ProjectScaffolder {
                                 scaffoldWeb(root, config)
                                 null
                             }
-                            ProjectTemplate.MINECRAFT_MOD -> scaffoldMinecraft(root, config)
-                            ProjectTemplate.ANDROID_COMPOSE -> {
-                                scaffoldAndroidCompose(root, config)
+                            ProjectTemplate.NONE -> {
+                                scaffoldNone(root, config)
                                 null
                             }
-                            ProjectTemplate.HORIZON_CONTENT_MOD -> {
-                                scaffoldHorizonContentMod(root, config)
+                            ProjectTemplate.HORIZON_GAMEPLAY_HNMOD -> {
+                                scaffoldHorizonGameplayHnmod(root, config)
                                 null
                             }
-                            ProjectTemplate.HORIZON_WASM_CLIENT_MOD -> {
-                                scaffoldHorizonWasmClientMod(root, config)
+                            ProjectTemplate.HORIZON_HUD_COMMAND_HNMOD -> {
+                                scaffoldHorizonHudCommandHnmod(root, config)
                                 null
                             }
-                            ProjectTemplate.HORIZON_WASM_SERVER_MOD -> {
-                                scaffoldHorizonWasmServerMod(root, config)
-                                null
-                            }
-                            ProjectTemplate.HORIZON_NATIVE_MIXIN_MOD -> {
-                                scaffoldHorizonNativeMixinMod(root, config)
+                            ProjectTemplate.HORIZON_CRATE_ENGINE_HNMOD -> {
+                                scaffoldHorizonCrateEngineHnmod(root, config)
                                 null
                             }
                         }
@@ -86,7 +79,7 @@ object ProjectScaffolder {
 
                     Result.Success(root, warning)
                 }
-                .getOrElse { Result.Failure(it.message ?: "Unknown error while creating project", it) }
+                .getOrElse { Result.Failure(it.message ?: "Error creating project", it) }
         }
 
     // ---- helpers ----------------------------------------------------------------
@@ -96,12 +89,6 @@ object ProjectScaffolder {
         target.parentFile?.mkdirs()
         target.writeText(content.trimStart('\n'))
         return target
-    }
-
-    private fun File.writePng(relativePath: String) {
-        val target = File(this, relativePath)
-        target.parentFile?.mkdirs()
-        target.writeBytes(Base64.getDecoder().decode(PLACEHOLDER_PNG_B64))
     }
 
     private fun escapeJson(s: String): String =
@@ -140,900 +127,622 @@ object ProjectScaffolder {
         }
     }
 
-    // ---- 1. Horizon Content Mod (.hmod, API 0.2) --------------------------------
+    private fun horizonRev(): String =
+        Settings.horizon_revision.takeIf { HorizonModValidator.isValidRevision(it) }
+            ?: HorizonModValidator.DEFAULT_HORIZON_REV
 
-    private suspend fun scaffoldHorizonContentMod(root: File, config: ProjectConfig) {
+    private fun mixinsRev(): String =
+        Settings.mixins_revision.takeIf { HorizonModValidator.isValidRevision(it) }
+            ?: HorizonModValidator.DEFAULT_MIXINS_REV
+
+    // ---- 1. Horizon Gameplay (.hnmod) — Veinminer / Block Break / Key / Settings ----
+
+    private suspend fun scaffoldHorizonGameplayHnmod(root: File, config: ProjectConfig) {
         val modId = config.resolvedModId()
         val safeName = escapeJson(config.name)
-        val safeDesc = escapeJson(config.modDescription.ifBlank { "Declarative Horizon 26.3 content mod" })
-        val safeAuthor = escapeJson(config.author.ifBlank { "GoyDevv" })
+        val safeDesc = escapeJson(config.modDescription.ifBlank { "Breaks connected ores and logs in one swing." })
         val ver = config.modVersion.ifBlank { "0.1.0" }
+        val hRev = horizonRev()
+        val mRev = mixinsRev()
+        val runtimeMod = "${modId}_runtime"
 
         root.write(
-            "horizon-mod.toml",
+            "horizon-native.json",
             """
+            {
+              "schema": 1,
+              "id": "$modId",
+              "version": "$ver",
+              "game": "26.3",
+              "horizon": "$hRev",
+              "mixins": "$mRev",
+              "hooks": 35
+            }
+            """
+                .trimIndent() + "\n",
+        )
+
+        root.write(
+            "mixins/$modId/horizon-mixin.toml",
+            """
+            [mod]
             id = "$modId"
-            name = "$safeName"
             version = "$ver"
-            api = "0.2"
-            description = "$safeDesc"
-            authors = ["$safeAuthor"]
-            capabilities = ["registries"]
+            priority = 100
+
+            [compatibility]
+            horizon_revision = "$hRev"
+
+            [[module]]
+            id = "runtime"
+            file = "crates/horizon-client/src/game.rs"
+            name = "$runtimeMod"
+            source = "runtime.rs"
+
+            [[injection]]
+            id = "list"
+            kind = "HEAD"
+            target = "horizon_client::game::native_hooks::Game<'_>::native_mods"
+            helper = "list.rs"
+            bindings = [
+              { name = "mods", ty = "&mut Vec<crate::game::native_hooks::NativeMod>", value = "&mut *mods" },
+            ]
+
+            [[injection]]
+            id = "settings"
+            kind = "HEAD"
+            target = "horizon_client::game::native_hooks::Game<'_>::native_settings"
+            helper = "settings.rs"
+            bindings = [
+              { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+              { name = "mod_id", ty = "&str", value = "mod_id" },
+              { name = "buttons", ty = "&mut Vec<String>", value = "&mut *buttons" },
+            ]
+
+            [[injection]]
+            id = "click"
+            kind = "HEAD"
+            target = "horizon_client::game::native_hooks::Game<'_>::native_settings_click"
+            helper = "click.rs"
+            bindings = [
+              { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+              { name = "mod_id", ty = "&str", value = "mod_id" },
+              { name = "button", ty = "usize", value = "button" },
+            ]
+
+            [[injection]]
+            id = "key"
+            kind = "HEAD"
+            target = "horizon_client::game::native_hooks::Game<'_>::native_key"
+            helper = "key.rs"
+            bindings = [
+              { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+              { name = "key", ty = "&str", value = "key" },
+              { name = "pressed", ty = "bool", value = "pressed" },
+            ]
+
+            [[injection]]
+            id = "destroy_block"
+            kind = "HEAD"
+            target = "horizon_client::game::native_hooks::Game<'_>::native_destroy_block"
+            helper = "destroy_block.rs"
+            bindings = [
+              { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+              { name = "pos", ty = "[i32; 3]", value = "pos" },
+              { name = "state", ty = "&str", value = "state" },
+              { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+            ]
             """
                 .trimIndent() + "\n",
         )
 
-        // Declarative Horizon Registries: block, item, creative_tab, mob_effect, entity_type, menu
         root.write(
-            "data/$modId/horizon/block/ruby_ore.json",
+            "mixins/$modId/runtime.rs",
+            """
+            use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+            pub static ENABLED: AtomicBool = AtomicBool::new(true);
+            pub static MAX_BLOCKS: AtomicUsize = AtomicUsize::new(32);
+            pub static IN_VEIN: AtomicBool = AtomicBool::new(false);
+
+            pub fn is_enabled() -> bool {
+                ENABLED.load(Ordering::Relaxed)
+            }
+
+            pub fn toggle_enabled() -> bool {
+                let next = !is_enabled();
+                ENABLED.store(next, Ordering::Relaxed);
+                next
+            }
+
+            pub fn max_blocks() -> usize {
+                MAX_BLOCKS.load(Ordering::Relaxed)
+            }
+
+            pub fn cycle_max_blocks() -> usize {
+                let next = match max_blocks() {
+                    16 => 32,
+                    32 => 64,
+                    _ => 16,
+                };
+                MAX_BLOCKS.store(next, Ordering::Relaxed);
+                next
+            }
+
+            pub fn is_vein_target(block_id: &str) -> bool {
+                block_id.ends_with("_ore") || block_id.ends_with("_log") || block_id.ends_with("_stem")
+            }
+            """
+                .trimIndent() + "\n",
+        )
+
+        root.write(
+            "mixins/$modId/list.rs",
             """
             {
-              "template": "minecraft:stone",
-              "hardness": 3.0,
-              "explosion_resistance": 3.0,
-              "requires_tool": true,
-              "sounds": "stone",
-              "item": true
+                mods.push(crate::game::native_hooks::NativeMod {
+                    id: "$modId".to_string(),
+                    name: "$safeName".to_string(),
+                    version: "$ver".to_string(),
+                    description: "$safeDesc".to_string(),
+                });
             }
             """
                 .trimIndent() + "\n",
         )
 
         root.write(
-            "data/$modId/horizon/block/ruby_block.json",
+            "mixins/$modId/settings.rs",
             """
             {
-              "template": "minecraft:stone",
-              "hardness": 5.0,
-              "explosion_resistance": 6.0,
-              "light": 4,
-              "requires_tool": true,
-              "sounds": "metal",
-              "item": true
+                let _ = game;
+                if mod_id == "$modId" {
+                    let state = if crate::game::$runtimeMod::is_enabled() { "ON" } else { "OFF" };
+                    let limit = crate::game::$runtimeMod::max_blocks();
+                    buttons.push(format!("$safeName: {state}"));
+                    buttons.push(format!("Max Connected Blocks: {limit}"));
+                }
             }
             """
                 .trimIndent() + "\n",
         )
 
         root.write(
-            "data/$modId/horizon/item/ruby.json",
+            "mixins/$modId/click.rs",
             """
             {
-              "max_stack_size": 64,
-              "rarity": "uncommon",
-              "fire_resistant": false
-            }
-            """
-                .trimIndent() + "\n",
-        )
-
-        root.write(
-            "data/$modId/horizon/item/ruby_apple.json",
-            """
-            {
-              "max_stack_size": 64,
-              "rarity": "rare",
-              "components": {
-                "minecraft:food": {
-                  "nutrition": 6,
-                  "saturation": 1.2,
-                  "can_always_eat": true
-                }
-              }
-            }
-            """
-                .trimIndent() + "\n",
-        )
-
-        root.write(
-            "data/$modId/horizon/creative_tab/main.json",
-            """
-            {
-              "title": "$safeName",
-              "icon": "$modId:ruby",
-              "items": [
-                "$modId:ruby",
-                "$modId:ruby_apple",
-                "$modId:ruby_ore",
-                "$modId:ruby_block"
-              ]
-            }
-            """
-                .trimIndent() + "\n",
-        )
-
-        root.write(
-            "data/$modId/horizon/mob_effect/ruby_vigor.json",
-            """
-            {
-              "category": "beneficial",
-              "color": 16724838
-            }
-            """
-                .trimIndent() + "\n",
-        )
-
-        root.write(
-            "data/$modId/horizon/entity_type/ruby_golem.json",
-            """
-            {
-              "category": "creature",
-              "width": 1.4,
-              "height": 2.7,
-              "client_tracking_range": 10
-            }
-            """
-                .trimIndent() + "\n",
-        )
-
-        root.write(
-            "data/$modId/horizon/menu/ruby_infuser.json",
-            """
-            {
-              "title": "Ruby Infuser",
-              "rows": 3
-            }
-            """
-                .trimIndent() + "\n",
-        )
-
-        // Minecraft 26.3 Data: singular recipe, loot_table, tags/block, tags/item
-        root.write(
-            "data/$modId/recipe/ruby_block.json",
-            """
-            {
-              "type": "minecraft:crafting_shaped",
-              "category": "building",
-              "pattern": [
-                "###",
-                "###",
-                "###"
-              ],
-              "key": {
-                "#": "$modId:ruby"
-              },
-              "result": {
-                "id": "$modId:ruby_block",
-                "count": 1
-              }
-            }
-            """
-                .trimIndent() + "\n",
-        )
-
-        root.write(
-            "data/$modId/loot_table/blocks/ruby_ore.json",
-            """
-            {
-              "type": "minecraft:block",
-              "pools": [
-                {
-                  "rolls": 1.0,
-                  "entries": [
-                    {
-                      "type": "minecraft:item",
-                      "name": "$modId:ruby"
-                    }
-                  ]
-                }
-              ]
-            }
-            """
-                .trimIndent() + "\n",
-        )
-
-        root.write(
-            "data/$modId/tags/block/ores.json",
-            """
-            {
-              "replace": false,
-              "values": [
-                "$modId:ruby_ore"
-              ]
-            }
-            """
-                .trimIndent() + "\n",
-        )
-
-        root.write(
-            "data/$modId/tags/item/gems.json",
-            """
-            {
-              "replace": false,
-              "values": [
-                "$modId:ruby"
-              ]
-            }
-            """
-                .trimIndent() + "\n",
-        )
-
-        // Minecraft 26.3 Assets: blockstates, models/block, models/item, items (26.3 dispatch), lang, textures
-        for (bname in listOf("ruby_ore", "ruby_block")) {
-            root.write(
-                "assets/$modId/blockstates/$bname.json",
-                """
-                {
-                  "variants": {
-                    "": { "model": "$modId:block/$bname" }
-                  }
-                }
-                """
-                    .trimIndent() + "\n",
-            )
-            root.write(
-                "assets/$modId/models/block/$bname.json",
-                """
-                {
-                  "parent": "minecraft:block/cube_all",
-                  "textures": {
-                    "all": "$modId:block/$bname"
-                  }
-                }
-                """
-                    .trimIndent() + "\n",
-            )
-            root.write(
-                "assets/$modId/models/item/$bname.json",
-                """
-                {
-                  "parent": "$modId:block/$bname"
-                }
-                """
-                    .trimIndent() + "\n",
-            )
-            root.write(
-                "assets/$modId/items/$bname.json",
-                """
-                {
-                  "model": {
-                    "type": "minecraft:model",
-                    "model": "$modId:item/$bname"
-                  }
-                }
-                """
-                    .trimIndent() + "\n",
-            )
-            root.writePng("assets/$modId/textures/block/$bname.png")
-        }
-
-        for (iname in listOf("ruby", "ruby_apple")) {
-            root.write(
-                "assets/$modId/models/item/$iname.json",
-                """
-                {
-                  "parent": "minecraft:item/generated",
-                  "textures": {
-                    "layer0": "$modId:item/$iname"
-                  }
-                }
-                """
-                    .trimIndent() + "\n",
-            )
-            root.write(
-                "assets/$modId/items/$iname.json",
-                """
-                {
-                  "model": {
-                    "type": "minecraft:model",
-                    "model": "$modId:item/$iname"
-                  }
-                }
-                """
-                    .trimIndent() + "\n",
-            )
-            root.writePng("assets/$modId/textures/item/$iname.png")
-        }
-
-        root.write(
-            "assets/$modId/lang/en_us.json",
-            """
-            {
-              "itemGroup.$modId.main": "$safeName",
-              "block.$modId.ruby_ore": "Ruby Ore",
-              "block.$modId.ruby_block": "Block of Ruby",
-              "item.$modId.ruby": "Ruby",
-              "item.$modId.ruby_apple": "Ruby Apple"
-            }
-            """
-                .trimIndent() + "\n",
-        )
-
-        HorizonModPorter.copyBundledTools(File(root, "tools"))
-        root.write(".gitignore", "*.hmod\n/target/\n")
-        root.write(
-            "README.md",
-            """
-            # ${config.name} (`$modId.hmod`)
-
-            Declarative Horizon Content Mod (API `0.2`, Minecraft `26.3` layout).
-
-            ## Structure
-            - `horizon-mod.toml`: Strict Horizon manifest (`capabilities = ["registries"]`)
-            - `data/$modId/horizon/{block,item,creative_tab,mob_effect,entity_type,menu}/`: Declarative Horizon registries
-            - `data/$modId/{recipe,loot_table,tags/block,tags/item}/`: Minecraft 26.3 singular data folders
-            - `assets/$modId/items/*.json`: Minecraft 26.3 client item model dispatch files
-
-            ## One-Click Build & Package
-            Press **Run** in Arse IDE (or use the **Horizon** bottom tab -> **Package .hmod**) to validate and package `$modId.hmod`.
-            """
-                .trimIndent() + "\n",
-        )
-
-        // Pre-package initial <id>.hmod
-        HorizonModPackager.packageProject(root)
-    }
-
-    // ---- 2. Horizon Client / Hybrid WASM Mod (.hmod, API 0.2) -------------------
-
-    private suspend fun scaffoldHorizonWasmClientMod(root: File, config: ProjectConfig) {
-        val modId = config.resolvedModId()
-        val safeName = escapeJson(config.name)
-        val safeDesc = escapeJson(config.modDescription.ifBlank { "Horizon Client/Hybrid WASM Mod" })
-        val safeAuthor = escapeJson(config.author.ifBlank { "GoyDevv" })
-        val ver = config.modVersion.ifBlank { "0.1.0" }
-
-        HorizonModPorter.copyBundledSdk(File(root, "sdk/horizon-mod-sdk"))
-        HorizonModPorter.copyBundledTools(File(root, "tools"))
-
-        root.write(
-            "horizon-mod.toml",
-            """
-            id = "$modId"
-            name = "$safeName"
-            version = "$ver"
-            api = "0.2"
-            entry = "mod.wasm"
-            description = "$safeDesc"
-            authors = ["$safeAuthor"]
-            capabilities = ["registries", "hud", "render", "ui", "input", "storage"]
-            experimental = ["ui", "render", "input"]
-            """
-                .trimIndent() + "\n",
-        )
-
-        root.write(
-            "Cargo.toml",
-            """
-            [package]
-            name = "$modId"
-            version = "$ver"
-            edition = "2021"
-
-            [lib]
-            crate-type = ["cdylib", "rlib"]
-
-            [dependencies]
-            horizon-mod-sdk = { path = "sdk/horizon-mod-sdk" }
-            """
-                .trimIndent() + "\n",
-        )
-
-        root.write(
-            "src/lib.rs",
-            """
-            use horizon_mod_sdk::{
-                export_mod, game, hud, input, log, render, storage, ui, Action, Anchor, InputEvent, KeybindId,
-                Mod, RenderContext, ScreenDef, UiEvent, WidgetDef,
-            };
-
-            const HUD_TITLE_ID: u32 = 1;
-            const HUD_TARGET_ID: u32 = 2;
-            const SCREEN_MAIN: u32 = 10;
-            const BTN_TOGGLE_HUD: u32 = 100;
-            const BTN_CLOSE: u32 = 101;
-
-            pub struct ClientWasmMod {
-                hud_visible: bool,
-                toggle_hud_key: Option<KeybindId>,
-                open_screen_key: Option<KeybindId>,
-                last_target: String,
-            }
-
-            impl Default for ClientWasmMod {
-                fn default() -> Self {
-                    Self {
-                        hud_visible: true,
-                        toggle_hud_key: None,
-                        open_screen_key: None,
-                        last_target: String::from("None"),
-                    }
-                }
-            }
-
-            impl Mod for ClientWasmMod {
-                fn init(&mut self) -> Result<(), String> {
-                    if let Some(bytes) = storage::get("hud_visible") {
-                        self.hud_visible = bytes != b"0";
-                    }
-                    self.toggle_hud_key = input::register_keybind(
-                        "$modId.toggle_hud",
-                        "Toggle $safeName HUD",
-                        "KeyH",
-                        "$safeName",
-                    )
-                    .ok();
-                    self.open_screen_key = input::register_keybind(
-                        "$modId.open_panel",
-                        "Open $safeName Panel",
-                        "KeyJ",
-                        "$safeName",
-                    )
-                    .ok();
-                    log::info("$safeName WASM client mod initialized!");
-                    Ok(())
-                }
-
-                fn tick(&mut self, _dt: f32) {
-                    if !self.hud_visible {
-                        let _ = hud::remove(HUD_TITLE_ID);
-                        let _ = hud::remove(HUD_TARGET_ID);
-                        return;
-                    }
-
-                    self.last_target = match game::raycast(5.0) {
-                        Some(hit) => format!("{} ({}, {}, {})", hit.block_id, hit.block_pos.0, hit.block_pos.1, hit.block_pos.2),
-                        None => String::from("Air"),
-                    };
-
-                    let _ = hud::text(
-                        HUD_TITLE_ID,
-                        "$safeName [H: HUD | J: Panel]",
-                        Anchor::TopLeft,
-                        8.0,
-                        8.0,
-                        1.0,
-                        0xFF66E3F4,
-                    );
-                    let _ = hud::text(
-                        HUD_TARGET_ID,
-                        &format!("Looking at: {}", self.last_target),
-                        Anchor::TopLeft,
-                        8.0,
-                        20.0,
-                        1.0,
-                        0xFFEAF0FA,
-                    );
-                }
-
-                fn on_render(&mut self, _ctx: RenderContext) {
-                    if self.hud_visible {
-                        let _ = render::draw_rect(4.0, 4.0, 220.0, 30.0, 0x660A0E17);
-                    }
-                }
-
-                fn on_input(&mut self, event: InputEvent) -> bool {
-                    if event.action != Action::Press {
-                        return false;
-                    }
-                    if self.toggle_hud_key == Some(event.keybind) {
-                        self.hud_visible = !self.hud_visible;
-                        let _ = storage::set("hud_visible", if self.hud_visible { b"1" } else { b"0" });
-                        return true;
-                    }
-                    if self.open_screen_key == Some(event.keybind) {
-                        self.open_control_screen();
-                        return true;
-                    }
-                    false
-                }
-
-                fn on_ui_event(&mut self, event: UiEvent) {
-                    match event {
-                        UiEvent::ButtonClicked { screen, widget } if screen == SCREEN_MAIN => {
-                            if widget == BTN_TOGGLE_HUD {
-                                self.hud_visible = !self.hud_visible;
-                                let _ = storage::set("hud_visible", if self.hud_visible { b"1" } else { b"0" });
-                            } else if widget == BTN_CLOSE {
-                                let _ = ui::close_screen();
-                            }
-                        }
+                let _ = game;
+                if mod_id == "$modId" {
+                    match button {
+                        0 => { crate::game::$runtimeMod::toggle_enabled(); }
+                        1 => { crate::game::$runtimeMod::cycle_max_blocks(); }
                         _ => {}
                     }
                 }
             }
+            """
+                .trimIndent() + "\n",
+        )
 
-            impl ClientWasmMod {
-                fn open_control_screen(&self) {
-                    let screen = ScreenDef {
-                        id: SCREEN_MAIN,
-                        title: "$safeName Settings".to_string(),
-                        width: 240.0,
-                        height: 150.0,
-                        widgets: vec![
-                            WidgetDef::Label {
-                                id: 1,
-                                x: 16.0,
-                                y: 20.0,
-                                text: format!("Target: {}", self.last_target),
-                                scale: 1.0,
-                                color: 0xFFFFFFFF,
-                            },
-                            WidgetDef::Button {
-                                id: BTN_TOGGLE_HUD,
-                                x: 16.0,
-                                y: 52.0,
-                                w: 208.0,
-                                h: 24.0,
-                                text: "Toggle HUD Overlay".to_string(),
-                            },
-                            WidgetDef::Button {
-                                id: BTN_CLOSE,
-                                x: 16.0,
-                                y: 88.0,
-                                w: 208.0,
-                                h: 24.0,
-                                text: "Close".to_string(),
-                            },
-                        ],
-                    };
-                    let _ = ui::open_screen(&screen);
+        root.write(
+            "mixins/$modId/key.rs",
+            """
+            {
+                if pressed && key.eq_ignore_ascii_case("key.keyboard.grave.accent") && !game.native_in_menu() {
+                    let on = crate::game::$runtimeMod::toggle_enabled();
+                    game.native_chat(&format!(
+                        "$safeName: {}",
+                        if on { "ON" } else { "OFF" }
+                    ));
                 }
             }
-
-            export_mod!(ClientWasmMod);
             """
                 .trimIndent() + "\n",
         )
 
-        // Include a sample 26.3 item + model dispatch so hybrid content + WASM works out of the box
         root.write(
-            "data/$modId/horizon/item/scanner_wand.json",
+            "mixins/$modId/destroy_block.rs",
             """
             {
-              "max_stack_size": 1,
-              "rarity": "rare"
-            }
-            """
-                .trimIndent() + "\n",
-        )
-        root.write(
-            "data/$modId/horizon/creative_tab/main.json",
-            """
-            {
-              "title": "$safeName",
-              "icon": "$modId:scanner_wand",
-              "items": ["$modId:scanner_wand"]
-            }
-            """
-                .trimIndent() + "\n",
-        )
-        root.write(
-            "assets/$modId/models/item/scanner_wand.json",
-            """
-            {
-              "parent": "minecraft:item/handheld",
-              "textures": {
-                "layer0": "$modId:item/scanner_wand"
-              }
-            }
-            """
-                .trimIndent() + "\n",
-        )
-        root.write(
-            "assets/$modId/items/scanner_wand.json",
-            """
-            {
-              "model": {
-                "type": "minecraft:model",
-                "model": "$modId:item/scanner_wand"
-              }
-            }
-            """
-                .trimIndent() + "\n",
-        )
-        root.writePng("assets/$modId/textures/item/scanner_wand.png")
-        root.write(
-            "assets/$modId/lang/en_us.json",
-            """
-            {
-              "itemGroup.$modId.main": "$safeName",
-              "item.$modId.scanner_wand": "Scanner Wand"
+                if !*canceled
+                    && crate::game::$runtimeMod::is_enabled()
+                    && !crate::game::$runtimeMod::IN_VEIN.load(std::sync::atomic::Ordering::Relaxed)
+                {
+                    let block_id = state.split('[').next().unwrap_or(state);
+                    if crate::game::$runtimeMod::is_vein_target(block_id) {
+                        crate::game::$runtimeMod::IN_VEIN.store(true, std::sync::atomic::Ordering::Relaxed);
+                        let limit = crate::game::$runtimeMod::max_blocks();
+                        let mut visited = std::collections::BTreeSet::new();
+                        let mut queue = std::collections::VecDeque::new();
+                        visited.insert(pos);
+                        queue.push_back(pos);
+
+                        while let Some([x, y, z]) = queue.pop_front() {
+                            if visited.len() >= limit {
+                                break;
+                            }
+                            for dx in -1..=1 {
+                                for dy in -1..=1 {
+                                    for dz in -1..=1 {
+                                        if dx == 0 && dy == 0 && dz == 0 {
+                                            continue;
+                                        }
+                                        let next = [x + dx, y + dy, z + dz];
+                                        if visited.contains(&next) {
+                                            continue;
+                                        }
+                                        if let Some(nb) = game.native_block(next) {
+                                            let nb_id = nb.split('[').next().unwrap_or(&nb);
+                                            if nb_id == block_id {
+                                                visited.insert(next);
+                                                queue.push_back(next);
+                                                let _ = game.native_set_block(
+                                                    next,
+                                                    "minecraft:air",
+                                                    crate::game::native_hooks::flags::UPDATE_ALL,
+                                                );
+                                                if visited.len() >= limit {
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        crate::game::$runtimeMod::IN_VEIN.store(false, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
             }
             """
                 .trimIndent() + "\n",
         )
 
-        root.write(".gitignore", "/target/\n*.hmod\nmod.wasm\n")
-        root.write(
-            "README.md",
-            """
-            # ${config.name} (`$modId.hmod`)
-
-            Client / Hybrid Rust WASM Mod for Horizon (`api = "0.2"`, `wasm32-unknown-unknown`).
-
-            ## Building & Packaging
-            Press **Run** in Arse IDE or run:
-            ```bash
-            cargo build --target wasm32-unknown-unknown --release
-            python3 tools/package_hmod.py .
-            ```
-            """
-                .trimIndent() + "\n",
-        )
+        HorizonModPorter.copyBundledTools(File(root, "tools"))
+        HorizonModPackager.packageProject(root)
     }
 
-    // ---- 3. Horizon Server Gameplay WASM Mod (.hmod, API 0.3) -------------------
+    // ---- 2. Horizon HUD & Command (.hnmod) --------------------------------------
 
-    private suspend fun scaffoldHorizonWasmServerMod(root: File, config: ProjectConfig) {
+    private suspend fun scaffoldHorizonHudCommandHnmod(root: File, config: ProjectConfig) {
         val modId = config.resolvedModId()
         val safeName = escapeJson(config.name)
-        val safeDesc = escapeJson(config.modDescription.ifBlank { "Horizon Server Gameplay WASM Mod" })
-        val safeAuthor = escapeJson(config.author.ifBlank { "GoyDevv" })
+        val safeDesc = escapeJson(config.modDescription.ifBlank { "Client HUD overlay and slash command mod." })
         val ver = config.modVersion.ifBlank { "0.1.0" }
-
-        HorizonModPorter.copyBundledSdk(File(root, "sdk/horizon-mod-sdk"))
-        HorizonModPorter.copyBundledTools(File(root, "tools"))
+        val hRev = horizonRev()
+        val mRev = mixinsRev()
+        val runtimeMod = "${modId}_runtime"
 
         root.write(
-            "horizon-mod.toml",
+            "horizon-native.json",
             """
-            id = "$modId"
-            name = "$safeName"
-            version = "$ver"
-            api = "0.3"
-            side = "server"
-            entry = "mod.wasm"
-            description = "$safeDesc"
-            authors = ["$safeAuthor"]
-            capabilities = ["events", "world", "players", "commands", "storage"]
-            experimental = ["world", "players"]
+            {
+              "schema": 1,
+              "id": "$modId",
+              "version": "$ver",
+              "game": "26.3",
+              "horizon": "$hRev",
+              "mixins": "$mRev",
+              "hooks": 35
+            }
             """
                 .trimIndent() + "\n",
         )
 
         root.write(
-            "Cargo.toml",
+            "mixins/$modId/horizon-mixin.toml",
+            """
+            [mod]
+            id = "$modId"
+            version = "$ver"
+            priority = 100
+
+            [compatibility]
+            horizon_revision = "$hRev"
+
+            [[module]]
+            id = "runtime"
+            file = "crates/horizon-client/src/game.rs"
+            name = "$runtimeMod"
+            source = "runtime.rs"
+
+            [[injection]]
+            id = "list"
+            kind = "HEAD"
+            target = "horizon_client::game::native_hooks::Game<'_>::native_mods"
+            helper = "list.rs"
+            bindings = [
+              { name = "mods", ty = "&mut Vec<crate::game::native_hooks::NativeMod>", value = "&mut *mods" },
+            ]
+
+            [[injection]]
+            id = "hud"
+            kind = "HEAD"
+            target = "horizon_client::game::native_hooks::Game<'_>::native_hud"
+            helper = "hud.rs"
+            bindings = [
+              { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+              { name = "shapes", ty = "&mut Vec<crate::game::native_hooks::NativeShape>", value = "&mut *shapes" },
+            ]
+
+            [[injection]]
+            id = "commands"
+            kind = "HEAD"
+            target = "horizon_client::game::native_hooks::Game<'_>::native_commands"
+            helper = "commands.rs"
+            bindings = [
+              { name = "commands", ty = "&mut Vec<String>", value = "&mut *commands" },
+            ]
+
+            [[injection]]
+            id = "command"
+            kind = "HEAD"
+            target = "horizon_client::game::native_hooks::Game<'_>::native_command"
+            helper = "command.rs"
+            bindings = [
+              { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+              { name = "name", ty = "&str", value = "name" },
+              { name = "args", ty = "&str", value = "args" },
+              { name = "ran", ty = "&mut bool", value = "&mut *ran" },
+            ]
+            """
+                .trimIndent() + "\n",
+        )
+
+        root.write(
+            "mixins/$modId/runtime.rs",
+            """
+            use std::sync::atomic::{AtomicBool, Ordering};
+
+            pub static SHOW_HUD: AtomicBool = AtomicBool::new(true);
+
+            pub fn is_shown() -> bool {
+                SHOW_HUD.load(Ordering::Relaxed)
+            }
+
+            pub fn toggle() -> bool {
+                let next = !is_shown();
+                SHOW_HUD.store(next, Ordering::Relaxed);
+                next
+            }
+            """
+                .trimIndent() + "\n",
+        )
+
+        root.write(
+            "mixins/$modId/list.rs",
+            """
+            {
+                mods.push(crate::game::native_hooks::NativeMod {
+                    id: "$modId".to_string(),
+                    name: "$safeName".to_string(),
+                    version: "$ver".to_string(),
+                    description: "$safeDesc".to_string(),
+                });
+            }
+            """
+                .trimIndent() + "\n",
+        )
+
+        root.write(
+            "mixins/$modId/hud.rs",
+            """
+            {
+                if crate::game::$runtimeMod::is_shown() && !game.native_in_menu() {
+                    if let Some(p) = game.native_player() {
+                        shapes.push(crate::game::native_hooks::NativeShape::Rect {
+                            x: 6.0,
+                            y: 6.0,
+                            w: 152.0,
+                            h: 22.0,
+                            color: 0x9010141F,
+                        });
+                        shapes.push(crate::game::native_hooks::NativeShape::Text {
+                            text: format!("XYZ: {:.1}, {:.1}, {:.1}", p.x, p.y, p.z),
+                            x: 12.0,
+                            y: 13.0,
+                            color: 0xFFE2E8F0,
+                            scale: 1.0,
+                            centered: false,
+                            shadow: true,
+                        });
+                    }
+                }
+            }
+            """
+                .trimIndent() + "\n",
+        )
+
+        root.write(
+            "mixins/$modId/commands.rs",
+            """
+            {
+                commands.push("$modId".to_string());
+            }
+            """
+                .trimIndent() + "\n",
+        )
+
+        root.write(
+            "mixins/$modId/command.rs",
+            """
+            {
+                let _ = args;
+                if name == "$modId" {
+                    let on = crate::game::$runtimeMod::toggle();
+                    game.native_chat(&format!("$safeName HUD: {}", if on { "ON" } else { "OFF" }));
+                    *ran = true;
+                }
+            }
+            """
+                .trimIndent() + "\n",
+        )
+
+        HorizonModPorter.copyBundledTools(File(root, "tools"))
+        HorizonModPackager.packageProject(root)
+    }
+
+    // ---- 3. Horizon Engine Crate (.hnmod) ---------------------------------------
+
+    private suspend fun scaffoldHorizonCrateEngineHnmod(root: File, config: ProjectConfig) {
+        val modId = config.resolvedModId()
+        val safeName = escapeJson(config.name)
+        val ver = config.modVersion.ifBlank { "0.1.0" }
+        val hRev = horizonRev()
+        val mRev = mixinsRev()
+        val crateName = "${modId.replace('_', '-')}-engine"
+        val crateIdent = "${modId}_engine"
+        val runtimeMod = "${modId}_runtime"
+
+        root.write(
+            "horizon-native.json",
+            """
+            {
+              "schema": 1,
+              "id": "$modId",
+              "version": "$ver",
+              "game": "26.3",
+              "horizon": "$hRev",
+              "mixins": "$mRev",
+              "hooks": 41
+            }
+            """
+                .trimIndent() + "\n",
+        )
+
+        root.write(
+            "mixins/$modId/horizon-mixin.toml",
+            """
+            [mod]
+            id = "$modId"
+            version = "$ver"
+            priority = 100
+
+            [compatibility]
+            horizon_revision = "$hRev"
+
+            [[crate]]
+            id = "engine"
+            path = "engine"
+
+            [[module]]
+            id = "runtime"
+            file = "crates/horizon-client/src/game.rs"
+            name = "$runtimeMod"
+            source = "runtime.rs"
+
+            [[injection]]
+            id = "list"
+            kind = "HEAD"
+            target = "horizon_client::game::native_hooks::Game<'_>::native_mods"
+            helper = "list.rs"
+            bindings = [
+              { name = "mods", ty = "&mut Vec<crate::game::native_hooks::NativeMod>", value = "&mut *mods" },
+            ]
+
+            [[injection]]
+            id = "tick"
+            kind = "HEAD"
+            target = "horizon_client::game::native_hooks::Game<'_>::native_tick"
+            helper = "tick.rs"
+            bindings = [
+              { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+            ]
+            """
+                .trimIndent() + "\n",
+        )
+
+        root.write(
+            "mixins/$modId/runtime.rs",
+            """
+            pub fn summary() -> &'static str {
+                $crateIdent::mod_banner()
+            }
+            """
+                .trimIndent() + "\n",
+        )
+
+        root.write(
+            "mixins/$modId/list.rs",
+            """
+            {
+                mods.push(crate::game::native_hooks::NativeMod {
+                    id: "$modId".to_string(),
+                    name: "$safeName".to_string(),
+                    version: "$ver".to_string(),
+                    description: crate::game::$runtimeMod::summary().to_string(),
+                });
+            }
+            """
+                .trimIndent() + "\n",
+        )
+
+        root.write(
+            "mixins/$modId/tick.rs",
+            """
+            {
+                let _ = game;
+                $crateIdent::on_client_tick();
+            }
+            """
+                .trimIndent() + "\n",
+        )
+
+        root.write(
+            "mixins/$modId/data/ported_config.json",
+            """
+            {
+              "enabled": true,
+              "multiplier": 2.0
+            }
+            """
+                .trimIndent() + "\n",
+        )
+
+        root.write(
+            "mixins/$modId/engine/Cargo.toml",
             """
             [package]
-            name = "$modId"
+            name = "$crateName"
             version = "$ver"
-            edition = "2021"
-
-            [lib]
-            crate-type = ["cdylib", "rlib"]
+            edition = "2024"
 
             [dependencies]
-            horizon-mod-sdk = { path = "sdk/horizon-mod-sdk" }
             """
                 .trimIndent() + "\n",
         )
 
         root.write(
-            "src/lib.rs",
-            """
-            use horizon_mod_sdk::{
-                commands, export_server_mod, log, players, storage, world, BlockBreakEvent, BlockPos,
-                BlockUseEvent, CommandContext, CommandResult, EventOutcome, PlayerJoinEvent, ServerMod,
-            };
-
-            #[derive(Default)]
-            pub struct GameplayServerMod {
-                protected_spawn_radius: i32,
-            }
-
-            impl ServerMod for GameplayServerMod {
-                fn init(&mut self) -> Result<(), String> {
-                    self.protected_spawn_radius = storage::get("spawn_radius")
-                        .and_then(|b| std::str::from_utf8(&b).ok()?.parse::<i32>().ok())
-                        .unwrap_or(16);
-
-                    commands::register(
-                        "protectradius",
-                        "Set the protected spawn radius",
-                        &["/protectradius <blocks>"],
-                    )?;
-                    commands::register(
-                        "pillar",
-                        "Place a 3-block glowstone pillar above your position",
-                        &["/pillar"],
-                    )?;
-                    log::info(&format!(
-                        "$safeName server mod loaded (protected_spawn_radius={})",
-                        self.protected_spawn_radius
-                    ));
-                    Ok(())
-                }
-
-                fn on_player_join(&mut self, event: PlayerJoinEvent) {
-                    let _ = players::send_message(
-                        &event.player.name,
-                        &format!("Welcome to $safeName, {}!", event.player.name),
-                    );
-                }
-
-                fn on_block_break(&mut self, event: BlockBreakEvent) -> EventOutcome {
-                    if event.pos.x.abs() <= self.protected_spawn_radius
-                        && event.pos.z.abs() <= self.protected_spawn_radius
-                    {
-                        let _ = players::send_action_bar(
-                            &event.player.name,
-                            "Spawn protection is active in this area!",
-                        );
-                        return EventOutcome::Cancel;
-                    }
-                    EventOutcome::Continue
-                }
-
-                fn on_block_use(&mut self, event: BlockUseEvent) -> EventOutcome {
-                    if event.is_sneaking {
-                        if let Ok(block_id) = world::get_block_id(event.pos) {
-                            let _ = players::send_action_bar(
-                                &event.player.name,
-                                &format!("Block @ ({}, {}, {}): {}", event.pos.x, event.pos.y, event.pos.z, block_id),
-                            );
-                        }
-                    }
-                    EventOutcome::Continue
-                }
-
-                fn on_command(&mut self, ctx: CommandContext) -> CommandResult {
-                    match ctx.command.as_str() {
-                        "protectradius" => {
-                            let Some(first) = ctx.args.first() else {
-                                return CommandResult::Error("Usage: /protectradius <blocks>".to_string());
-                            };
-                            match first.parse::<i32>() {
-                                Ok(radius) if (0..=512).contains(&radius) => {
-                                    self.protected_spawn_radius = radius;
-                                    let _ = storage::set("spawn_radius", radius.to_string().as_bytes());
-                                    CommandResult::Success(format!("Protected spawn radius set to {radius} blocks."))
-                                }
-                                _ => CommandResult::Error("Radius must be an integer between 0 and 512.".to_string()),
-                            }
-                        }
-                        "pillar" => {
-                            let base_x = ctx.sender.position.x.floor() as i32;
-                            let base_y = ctx.sender.position.y.floor() as i32;
-                            let base_z = ctx.sender.position.z.floor() as i32;
-                            for dy in 2..=4 {
-                                let _ = world::set_block_id(
-                                    BlockPos::new(base_x, base_y + dy, base_z),
-                                    "minecraft:glowstone",
-                                );
-                            }
-                            CommandResult::Success("Placed a glowstone pillar above you.".to_string())
-                        }
-                        _ => CommandResult::NotHandled,
-                    }
-                }
-            }
-
-            export_server_mod!(GameplayServerMod);
-            """
-                .trimIndent() + "\n",
-        )
-
-        root.write(".gitignore", "/target/\n*.hmod\nmod.wasm\n")
-        root.write(
-            "README.md",
-            """
-            # ${config.name} (`$modId.hmod`)
-
-            Server-Side Gameplay WASM Mod for Horizon (`api = "0.3"`, `side = "server"`).
-
-            ## Building & Packaging
-            Press **Run** in Arse IDE or run:
-            ```bash
-            cargo build --target wasm32-unknown-unknown --release
-            python3 tools/package_hmod.py .
-            ```
-            """
-                .trimIndent() + "\n",
-        )
-    }
-
-    // ---- 4. Horizon Native Mixin Mod (.hnmod) -----------------------------------
-
-    private suspend fun scaffoldHorizonNativeMixinMod(root: File, config: ProjectConfig) {
-        val modId = config.resolvedModId()
-        val safeName = escapeJson(config.name)
-        val safeDesc = escapeJson(config.modDescription.ifBlank { "Horizon Native Mixin Mod (.hnmod)" })
-        val safeAuthor = escapeJson(config.author.ifBlank { "GoyDevv" })
-        val ver = config.modVersion.ifBlank { "0.1.0" }
-
-        HorizonModPorter.copyBundledTools(File(root, "tools"))
-
-        root.write(
-            "horizon-mixin.toml",
-            """
-            id = "$modId"
-            name = "$safeName"
-            version = "$ver"
-            api = "0.1"
-            description = "$safeDesc"
-            authors = ["$safeAuthor"]
-            environment = "client"
-
-            [libraries]
-            linux_x86_64 = "libraries/linux-x86_64/lib$modId.so"
-            linux_aarch64 = "libraries/linux-aarch64/lib$modId.so"
-            windows_x86_64 = "libraries/windows-x86_64/$modId.dll"
-
-            [[hooks]]
-            target = "horizon_client::game::native_hooks::Game"
-            method = "on_frame"
-            point = "TAIL"
-            callback = "on_game_frame_tail"
-
-            [[hooks]]
-            target = "horizon_client::game::native_hooks::Game"
-            method = "on_key_input"
-            point = "HEAD"
-            callback = "on_game_key_input_head"
-            cancellable = true
-            """
-                .trimIndent() + "\n",
+            "mixins/$modId/engine/README.md",
+            "# $safeName Engine Crate\n\nCompanion Rust library crate for `$modId`.\n",
         )
 
         root.write(
-            "Cargo.toml",
+            "mixins/$modId/engine/src/lib.rs",
             """
-            [package]
-            name = "$modId"
-            version = "$ver"
-            edition = "2021"
-
-            [lib]
-            crate-type = ["cdylib"]
-            """
-                .trimIndent() + "\n",
-        )
-
-        root.write(
-            "src/lib.rs",
-            """
-            //! Native Horizon Mixin hooks targeting `horizon_client::game::native_hooks::Game`.
-
             use std::sync::atomic::{AtomicU64, Ordering};
 
-            static FRAME_COUNTER: AtomicU64 = AtomicU64::new(0);
+            static TICKS: AtomicU64 = AtomicU64::new(0);
 
-            #[repr(C)]
-            pub struct CallbackInfo {
-                pub cancelled: bool,
+            pub fn mod_banner() -> &'static str {
+                "$safeName companion Cargo crate"
             }
 
-            /// Injected at TAIL of `horizon_client::game::native_hooks::Game::on_frame`.
-            #[no_mangle]
-            pub extern "C" fn on_game_frame_tail(_dt: f32) {
-                let _frame = FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
-            }
-
-            /// Injected at HEAD of `horizon_client::game::native_hooks::Game::on_key_input`.
-            #[no_mangle]
-            pub extern "C" fn on_game_key_input_head(key_code: i32, action: i32, ci: *mut CallbackInfo) {
-                if key_code == 290 && action == 1 && !ci.is_null() {
-                    unsafe {
-                        (*ci).cancelled = false;
-                    }
-                }
+            pub fn on_client_tick() -> u64 {
+                TICKS.fetch_add(1, Ordering::Relaxed) + 1
             }
             """
                 .trimIndent() + "\n",
         )
 
-        root.write(".gitignore", "/target/\n*.hnmod\n")
-        root.write(
-            "README.md",
-            """
-            # ${config.name} (`$modId.hnmod`)
-
-            Horizon Native Mixin Mod targeting `horizon_client::game::native_hooks::Game`.
-
-            ## Building & Packaging
-            Press **Run** in Arse IDE to compile the native `cdylib` and package `$modId.hnmod`.
-            """
-                .trimIndent() + "\n",
-        )
-
+        HorizonModPorter.copyBundledTools(File(root, "tools"))
         HorizonModPackager.packageProject(root)
     }
 
     // ---- None -------------------------------------------------------------------
 
     private fun scaffoldNone(root: File, config: ProjectConfig) {
-        root.write("README.md", "# ${config.name}\n\nCreated with Arse IDE.\n")
+        root.write("README.md", "# ${config.name}\n")
         root.write(".gitignore", ".DS_Store\n*.log\n/build/\n/out/\n")
     }
 
@@ -1047,8 +756,6 @@ object ProjectScaffolder {
                 "main.py",
                 """
                 $shebang
-                # ${config.name} - entry point
-
 
                 def main() -> None:
                     print("Hello from $safeName!")
@@ -1060,22 +767,9 @@ object ProjectScaffolder {
                     .trimIndent() + "\n",
             )
         runCatching { mainFile.setExecutable(true, false) }
-        root.write("requirements.txt", "# Add your pip dependencies here (one per line)\n")
-        root.write(
-            ".gitignore",
-            """
-            __pycache__/
-            *.py[cod]
-            .venv/
-            venv/
-            .env
-            """
-                .trimIndent() + "\n",
-        )
-        root.write(
-            "README.md",
-            "# ${config.name}\n\nRun with:\n\n```bash\n${if (python3) "python3" else "python"} main.py\n```\n",
-        )
+        root.write("requirements.txt", "# pip dependencies\n")
+        root.write(".gitignore", "__pycache__/\n*.py[cod]\n.venv/\nvenv/\n.env\n")
+        root.write("README.md", "# ${config.name}\n\n```bash\n${if (python3) "python3" else "python"} main.py\n```\n")
     }
 
     // ---- Node.js ----------------------------------------------------------------
@@ -1096,7 +790,6 @@ object ProjectScaffolder {
               "scripts": {
                 "start": "node index.js"
               },
-              "keywords": [],
               "author": "$safeAuthor",
               "license": "MIT"
             }
@@ -1108,28 +801,12 @@ object ProjectScaffolder {
             """
             "use strict";
 
-            function main() {
-              console.log("Hello from $safeDesc!");
-            }
-
-            main();
+            console.log("Hello from $safeDesc!");
             """
                 .trimIndent() + "\n",
         )
-        root.write(
-            ".gitignore",
-            """
-            node_modules/
-            npm-debug.log*
-            .env
-            dist/
-            """
-                .trimIndent() + "\n",
-        )
-        root.write(
-            "README.md",
-            "# ${config.name}\n\n```bash\nnpm install\nnpm start\n```\n",
-        )
+        root.write(".gitignore", "node_modules/\nnpm-debug.log*\n.env\ndist/\n")
+        root.write("README.md", "# ${config.name}\n\n```bash\nnpm install\nnpm start\n```\n")
     }
 
     // ---- Static Web -------------------------------------------------------------
@@ -1150,12 +827,9 @@ object ProjectScaffolder {
             </head>
             <body>
                 <main class="card">
-                    <span class="badge">Arse IDE Web Starter</span>
                     <h1>$safeTitle</h1>
-                    <p id="message">Welcome to $safeTitle — edit <code>index.html</code>, <code>style.css</code>, or <code>script.js</code> and hit Run to preview live.</p>
-                    <div class="actions">
-                        <button id="counter-btn" type="button">Clicks: <span id="count">0</span></button>
-                    </div>
+                    <p>Edit <code>index.html</code>, <code>style.css</code>, or <code>script.js</code> and tap Run.</p>
+                    <button id="counter-btn" type="button">Clicks: <span id="count">0</span></button>
                 </main>
                 <script src="script.js"></script>
             </body>
@@ -1177,7 +851,7 @@ object ProjectScaffolder {
             }
             * { box-sizing: border-box; }
             body {
-                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                font-family: system-ui, -apple-system, sans-serif;
                 margin: 0;
                 min-height: 100vh;
                 display: grid;
@@ -1187,33 +861,20 @@ object ProjectScaffolder {
                 color: var(--text);
             }
             .card {
-                max-width: 460px;
+                max-width: 440px;
                 width: 100%;
                 text-align: center;
-                padding: 2.25rem 1.75rem;
-                border-radius: 24px;
+                padding: 2rem 1.5rem;
+                border-radius: 20px;
                 background: var(--surface);
-                box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
             }
-            .badge {
-                display: inline-block;
-                padding: 0.3rem 0.85rem;
-                border-radius: 999px;
-                font-size: 0.75rem;
-                font-weight: 600;
-                color: var(--on-primary);
-                background: var(--primary);
-            }
-            h1 { margin: 1rem 0 0.6rem; font-size: 2rem; }
-            p { color: var(--muted); line-height: 1.6; margin-bottom: 1.5rem; }
+            p { color: var(--muted); line-height: 1.5; margin-bottom: 1.25rem; }
             button {
-                appearance: none;
                 border: none;
                 background: var(--primary);
                 color: var(--on-primary);
                 font-weight: 600;
-                font-size: 0.95rem;
-                padding: 0.75rem 1.5rem;
+                padding: 0.7rem 1.4rem;
                 border-radius: 999px;
                 cursor: pointer;
             }
@@ -1233,13 +894,13 @@ object ProjectScaffolder {
                   countEl.textContent = String(count);
                 });
               }
-              console.log("$safeJsTitle is running!");
+              console.log("$safeJsTitle loaded");
             });
             """
                 .trimIndent() + "\n",
         )
         root.write(".gitignore", "node_modules/\ndist/\n.env\n")
-        root.write("README.md", "# ${config.name}\n\nOpen `index.html` and press the Run button to launch the live preview.\n")
+        root.write("README.md", "# ${config.name}\n")
     }
 
     // ---- Minecraft Java Mod (Fabric / Forge) ------------------------------------
@@ -1278,17 +939,14 @@ object ProjectScaffolder {
             org.gradle.caching=true
             org.gradle.workers.max=2
 
-            # Fabric Properties (resolved for Minecraft $mc)
             minecraft_version=$mc
             yarn_mappings=${pins.yarn}
             loader_version=${pins.loader}
 
-            # Mod Properties
             mod_version=${config.modVersion}
             maven_group=$pkg
             archives_base_name=$modId
 
-            # Fabric API
             fabric_version=${pins.fabricApi}
             """
                 .trimIndent() + "\n",
@@ -1413,7 +1071,7 @@ object ProjectScaffolder {
 
                 @Override
                 public void onInitialize() {
-                    LOGGER.info("$safeName initialized!");
+                    LOGGER.info("$safeName initialized");
                 }
             }
             """
@@ -1422,10 +1080,10 @@ object ProjectScaffolder {
 
         writeGradleWrapper(root, "8.10.2")
         root.write(".gitignore", ".gradle/\nbuild/\nout/\n.idea/\n*.iml\n")
-        root.write("README.md", minecraftReadme(config, "Fabric", mc, jdk))
+        root.write("README.md", "# ${config.name}\n\nFabric mod for Minecraft $mc (Java $jdk).\n")
 
         return if (!pins.online) {
-            "Used offline Fabric defaults for Minecraft $mc — check gradle.properties if you customize dependencies."
+            "Used offline Fabric defaults for Minecraft $mc."
         } else {
             null
         }
@@ -1478,7 +1136,6 @@ object ProjectScaffolder {
             org.gradle.workers.max=2
 
             minecraft_version=$mc
-            # Resolved Forge build for Minecraft $mc
             forge_version=$forge
             mod_id=$modId
             mod_version=${config.modVersion}
@@ -1623,28 +1280,14 @@ object ProjectScaffolder {
 
         writeGradleWrapper(root, "8.8")
         root.write(".gitignore", ".gradle/\nbuild/\nout/\n.idea/\n*.iml\n")
-        root.write("README.md", minecraftReadme(config, "Forge", mc, jdk))
+        root.write("README.md", "# ${config.name}\n\nForge mod for Minecraft $mc (Java $jdk).\n")
 
         return if (!forgePin.exactMatch) {
-            "Forge does not have a published build for Minecraft $requestedMc yet — configured for Minecraft $mc (Forge $forge) so the project builds cleanly."
+            "Configured for Minecraft $mc (Forge $forge)."
         } else {
             null
         }
     }
-
-    private fun minecraftReadme(config: ProjectConfig, loader: String, mc: String, jdk: String): String =
-        """
-        # ${config.name}
-
-        $loader mod for Minecraft $mc (Java $jdk).
-
-        > Tip: Use the **Horizon** bottom tab in Arse IDE to port this mod to a Horizon `.hmod` project at any time!
-
-        ```bash
-        ./gradlew build
-        ```
-        """
-            .trimIndent() + "\n"
 
     private fun packFormatForMc(mc: String): Int =
         when {
@@ -1659,7 +1302,7 @@ object ProjectScaffolder {
             else -> 15
         }
 
-    // ---- Android Jetpack Compose (Clean Material 3 project — no test bloat) -----
+    // ---- Android Jetpack Compose (Clean Material 3 project) ---------------------
 
     private fun scaffoldAndroidCompose(root: File, config: ProjectConfig) {
         val pkg = config.resolvedPackageName()
@@ -1672,7 +1315,6 @@ object ProjectScaffolder {
         val safeRootName = escapeJson(config.name)
         val safeXmlAppName = escapeXml(config.name)
 
-        // settings.gradle.kts
         root.write(
             "settings.gradle.kts",
             """
@@ -1703,7 +1345,6 @@ object ProjectScaffolder {
                 .trimIndent() + "\n",
         )
 
-        // Root build.gradle.kts
         root.write(
             "build.gradle.kts",
             """
@@ -1715,7 +1356,6 @@ object ProjectScaffolder {
                 .trimIndent() + "\n",
         )
 
-        // Clean Version Catalog (no junit / espresso test bloat)
         root.write(
             "gradle/libs.versions.toml",
             """
@@ -1745,11 +1385,9 @@ object ProjectScaffolder {
                 .trimIndent() + "\n",
         )
 
-        // gradle.properties — build cache enabled & Phantom Process Killer friendly worker bounds
         root.write(
             "gradle.properties",
             """
-            # Project-wide Gradle settings (optimised for Arse IDE on Android).
             org.gradle.jvmargs=-Xmx1536m -Dfile.encoding=UTF-8
             org.gradle.parallel=true
             org.gradle.caching=true
@@ -1762,7 +1400,6 @@ object ProjectScaffolder {
                 .trimIndent() + "\n",
         )
 
-        // app/build.gradle.kts — clean production Android setup without unit/instrumented test bloat
         root.write(
             "app/build.gradle.kts",
             """
@@ -1821,10 +1458,9 @@ object ProjectScaffolder {
                 .trimIndent() + "\n",
         )
 
-        root.write("app/proguard-rules.pro", "# Add project specific ProGuard rules here.\n")
+        root.write("app/proguard-rules.pro", "# ProGuard rules\n")
         root.write("app/.gitignore", "/build\n")
 
-        // AndroidManifest.xml
         root.write(
             "app/src/main/AndroidManifest.xml",
             """
@@ -1858,7 +1494,6 @@ object ProjectScaffolder {
                 .trimIndent() + "\n",
         )
 
-        // Material You ui.theme package (Color.kt, Type.kt, Theme.kt)
         root.write(
             "app/src/main/java/$pkgPath/ui/theme/Color.kt",
             """
@@ -1953,7 +1588,6 @@ object ProjectScaffolder {
                 .trimIndent() + "\n",
         )
 
-        // MainActivity.kt — Clean Material You TopAppBar + ElevatedCard + FAB starter
         root.write(
             "app/src/main/java/$pkgPath/MainActivity.kt",
             """
@@ -2021,7 +1655,7 @@ object ProjectScaffolder {
                         ExtendedFloatingActionButton(
                             onClick = { count++ },
                         ) {
-                            Text("Increment (${'$'}count)")
+                            Text("Count: ${'$'}count")
                         }
                     },
                 ) { innerPadding ->
@@ -2035,19 +1669,19 @@ object ProjectScaffolder {
                         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(20.dp)) {
                                 Text(
-                                    text = "Material You Ready",
+                                    text = appTitle,
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.SemiBold,
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "Built with Jetpack Compose and dynamic Material 3 theming in Arse IDE.",
+                                    text = "Edit MainActivity.kt and tap Run to build.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Spacer(modifier = Modifier.height(14.dp))
                                 FilledTonalButton(onClick = { count = 0 }) {
-                                    Text("Reset Counter")
+                                    Text("Reset")
                                 }
                             }
                         }
@@ -2064,7 +1698,6 @@ object ProjectScaffolder {
                 .trimIndent() + "\n",
         )
 
-        // Resources
         root.write(
             "app/src/main/res/values/strings.xml",
             """
@@ -2126,7 +1759,6 @@ object ProjectScaffolder {
                 .trimIndent() + "\n",
         )
 
-        // Launcher icons
         root.write(
             "app/src/main/res/drawable/ic_launcher_background.xml",
             """
@@ -2207,26 +1839,8 @@ object ProjectScaffolder {
         )
 
         writeGradleWrapper(root, "9.5.1")
-
-        root.write(
-            "README.md",
-            """
-            # ${config.name}
-
-            Material You (Material 3) Jetpack Compose Android project created with **Arse IDE**.
-
-            ## Building
-            Press **Sync** once, then **Run** in Arse IDE, or run in the terminal sandbox:
-
-            ```bash
-            ./gradlew assembleDebug
-            ```
-            """
-                .trimIndent() + "\n",
-        )
+        root.write("README.md", "# ${config.name}\n\n```bash\n./gradlew assembleDebug\n```\n")
     }
-
-    // ---- Gradle wrapper ---------------------------------------------------------
 
     private fun writeGradleWrapper(root: File, gradleVersion: String) {
         root.write(

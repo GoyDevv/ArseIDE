@@ -24,6 +24,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.goydevv.arseide.commands.KeybindingsManager
+import com.goydevv.arseide.components.ReleaseChangelogGate
 import com.goydevv.arseide.drawer.DrawerPersistence
 import com.goydevv.arseide.drawer.DrawerViewModel
 import com.goydevv.arseide.file.FileManager
@@ -38,20 +39,19 @@ import com.goydevv.arseide.tabs.editor.EditorTab
 import com.goydevv.arseide.tabs.editor.applyHighlightingAndConnectLSP
 import com.goydevv.arseide.utils.errorDialog
 import com.goydevv.arseide.utils.toast
+import java.lang.ref.WeakReference
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.lang.ref.WeakReference
-import kotlin.time.Duration.Companion.milliseconds
 
 class MainActivity : AppCompatActivity() {
     val viewModel: MainViewModel by viewModels()
     val drawerViewModel: DrawerViewModel by viewModels()
     val fileManager = FileManager(this)
 
-    // suspend (isForeground) -> Unit
     val foregroundListener = hashMapOf<Any, suspend (Boolean) -> Unit>()
 
     companion object {
@@ -81,8 +81,6 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         isPaused = false
         instance = this
-        // Re-check storage permission after returning from system settings so granting it is
-        // picked up immediately (and storage-gated features unlock) without restarting the app.
         if (Settings.shown_disclaimer) {
             lifecycleScope.launch(Dispatchers.Main) { FilePermission.verifyStoragePermission(this@MainActivity) }
         }
@@ -158,9 +156,6 @@ class MainActivity : AppCompatActivity() {
             }
             var splashDone by rememberSaveable { mutableStateOf(false) }
             Box(modifier = Modifier.fillMaxSize()) {
-                // Always compose the real app immediately so it fully loads and lays out *behind* the
-                // opaque splash. The splash itself waits for the main thread to go idle before it
-                // animates, so the launch animation never competes with heavy composition.
                 NavHost(
                     navController = navController,
                     startDestination = startDestination,
@@ -180,12 +175,13 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // One-time "What's new" dialog, shown once the splash has handed off. Re-appears each
-            // launch until the user ticks "Never show again for this version".
-            var changelogDismissed by rememberSaveable { mutableStateOf(false) }
-            if (splashDone && !changelogDismissed && com.goydevv.arseide.components.ChangelogInfo.shouldShow()) {
+            // Real-time GitHub Releases gate (https://github.com/GoyDevv/ArseIDE/releases):
+            // - Shows Update Available dialog if remote release > installed version
+            // - Shows What's New Markdown dialog if installed version exists in releases
+            // - Shows nothing if installed version is not in releases
+            if (splashDone) {
                 com.goydevv.arseide.theme.XedTheme {
-                    com.goydevv.arseide.components.ChangelogDialog(onClose = { changelogDismissed = true })
+                    ReleaseChangelogGate()
                 }
             }
         }

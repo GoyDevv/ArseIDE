@@ -240,7 +240,6 @@ private fun catalogFor(type: DetectedProjectType): List<Dep> {
             )
         DetectedProjectType.GO ->
             listOf(Dep("Go", "golang-go", "command -v go >/dev/null 2>&1", apt("golang-go"), aptRm("golang-go")))
-        DetectedProjectType.HORIZON_MOD,
         DetectedProjectType.HORIZON_MIXIN_MOD ->
             listOf(
                 Dep(

@@ -36,12 +36,19 @@ fun getSelectionColor(): Color? {
 object ThemeManager {
     private val colorSchemeCache = hashMapOf<String, TextMateColorScheme>()
 
+    fun invalidateCache() {
+        colorSchemeCache.clear()
+    }
+
     suspend fun createColorScheme(context: Context, patchArgs: Editor.PatchArgs?) =
         withContext(Dispatchers.IO) {
             val cacheKey = getCacheKey(context)
 
-            colorSchemeCache[cacheKey]?.let {
-                return@withContext it
+            colorSchemeCache[cacheKey]?.let { cached ->
+                if (patchArgs != null) {
+                    XedColorScheme.applyPatchesTo(cached, patchArgs)
+                }
+                return@withContext cached
             }
 
             val darkTheme = isDarkTheme(context)
@@ -82,24 +89,6 @@ object ThemeManager {
         createColorScheme(context, patchArgs)
     }
 
-    /**
-     * Build a [io.github.rosemoe.sora.langs.textmate.registry.model.ThemeModel] by applying the user's theme onto a
-     * base theme that serves as a fallback.
-     *
-     * The method:
-     * 1. Reads the JSON base theme file from the specified asset path.
-     * 2. Merges additional token colors from the currently selected app theme.
-     * 3. Converts the modified JSON back into a byte stream and builds a
-     *    [io.github.rosemoe.sora.langs.textmate.registry.model.ThemeModel].
-     *
-     * @param context The application context.
-     * @param basePath The relative path of the base theme file inside the app's assets directory.
-     * @param baseName The logical name of the theme (used when creating the
-     *   [io.github.rosemoe.sora.langs.textmate.registry.model.ThemeModel]).
-     * @param darkTheme Whether to apply the dark variant of the current app theme’s token colors.
-     * @return A [io.github.rosemoe.sora.langs.textmate.registry.model.ThemeModel] representing the base theme (as a
-     *   fallback) merged with the user's theme.
-     */
     private suspend fun buildThemeModel(context: Context, basePath: String, baseName: String, darkTheme: Boolean) =
         withContext(Dispatchers.IO) {
             val inputStream = context.assets.open(basePath)
@@ -107,7 +96,7 @@ object ThemeManager {
                 val jsonElement = JsonParser.parseReader(reader)
                 val jsonObject = jsonElement.asJsonObject
 
-                val selectedTheme = currentTheme.value
+                val selectedTheme = if (Settings.monet) null else currentTheme.value
                 val tokenArray =
                     when {
                         selectedTheme == null -> JsonArray()
@@ -115,8 +104,6 @@ object ThemeManager {
                         else -> selectedTheme.lightTokenColors
                     }
 
-                // In some TextMate theme files the token colors are saved in an array
-                // called settings and in some it's called tokenColors
                 val arrayName =
                     if (jsonObject.has("settings")) {
                         "settings"

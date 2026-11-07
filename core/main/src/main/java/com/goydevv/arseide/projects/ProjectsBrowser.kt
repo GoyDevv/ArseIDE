@@ -1,10 +1,19 @@
 package com.goydevv.arseide.projects
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Environment
 import android.text.format.DateUtils
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,6 +28,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
@@ -29,9 +40,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -45,23 +55,36 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import com.goydevv.arseide.activities.main.MainActivity
+import com.goydevv.arseide.activities.main.showAutoSetupDialogGlobal
+import com.goydevv.arseide.exec.TerminalCommand
+import com.goydevv.arseide.exec.isTerminalInstalled
+import com.goydevv.arseide.exec.launchTerminal
 import com.goydevv.arseide.file.sandboxHomeDir
-import com.goydevv.arseide.horizon.HorizonModValidator
+import com.goydevv.arseide.horizon.HnmodConverterSheet
 import com.goydevv.arseide.resources.drawables
+import com.goydevv.arseide.resources.strings
+import com.goydevv.arseide.runner.ProjectRunner
+import com.goydevv.arseide.settings.Settings
+import com.goydevv.arseide.terminal.AutoSetup
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 /**
- * Scans the sandbox home — where the app creates projects, ports Horizon `.hmod` mods, and clones
- * GitHub repositories — and returns every project with rich metadata.
+ * Scans the workspace home directory and returns recognized projects and repositories.
  */
 object ProjectsBrowser {
 
@@ -128,17 +151,12 @@ object ProjectsBrowser {
     }
 
     private fun readPackageName(dir: File): String? {
-        File(dir, "horizon-mod.toml").takeIf { it.isFile }?.let { f ->
-            val parsed = HorizonModValidator.parseSimpleToml(runCatching { f.readText() }.getOrDefault(""))
-            parsed.strings["id"]?.takeIf { it.isNotBlank() }?.let { id ->
-                val api = parsed.strings["api"]?.ifBlank { "0.2" } ?: "0.2"
-                return "horizon:$id (API $api)"
-            }
-        }
-        File(dir, "horizon-mixin.toml").takeIf { it.isFile }?.let { f ->
-            val parsed = HorizonModValidator.parseSimpleToml(runCatching { f.readText() }.getOrDefault(""))
-            parsed.strings["id"]?.takeIf { it.isNotBlank() }?.let { id ->
-                return "mixin:$id"
+        File(dir, "horizon-native.json").takeIf { it.isFile }?.let { f ->
+            runCatching {
+                val obj = JSONObject(f.readText())
+                val id = obj.optString("id", "")
+                val hooks = obj.optInt("hooks", 1)
+                if (id.isNotBlank()) return "hnmod:$id (hooks v$hooks)"
             }
         }
         val gradleFiles =
@@ -201,26 +219,40 @@ private fun formatRelative(millis: Long): String =
     else DateUtils.getRelativeTimeSpanString(millis, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
 
 /**
- * Full-screen Material You **Projects Fragment** for the bottom navigation `Projects` tab.
+ * Projects tab fragment (`WorkspaceTab.PROJECTS`).
  *
- * Includes:
- * - Quick actions bar (Clone Git Repository, Open Folder, Port Java/Fabric Mod to `.hmod`)
- * - Live workspace project cards with active indicator
- * - Material 3 `ExtendedFloatingActionButton` (`+ New Project`) + secondary `SmallFloatingActionButton` (`Port Mod`)
+ * - Clean header card with instant search/filter and an Auto-Setup banner if initial setup was skipped.
+ * - Tapping any project card opens the interactive Project Action Sheet (Open in Editor, Build/Run,
+ *   Convert to `.hnmod`, or Open Terminal Here).
+ * - Tapping the `+` FAB opens the fast `+` action menu with all classic `+` options in one place:
+ *   Create New Project, Convert `.jar` / Mod to `.hnmod`, Open Directory, Clone Git Repository,
+ *   Open Internal Storage, Open Terminal Home (`~`), and Open Sandbox Terminal.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectsFragment(
     activeProjectPath: String?,
     onOpenProject: (File) -> Unit,
+    onRunBuildProject: (File) -> Unit,
     onCreateProject: (ProjectTemplate) -> Unit,
     onCloneGitRepo: () -> Unit,
     onOpenFolderSheet: () -> Unit,
-    onOpenHorizonPorter: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val mainActivity = context as? MainActivity
+
     var loading by remember { mutableStateOf(true) }
     var refreshTrigger by remember { mutableIntStateOf(0) }
+    var searchQuery by remember { mutableStateOf("") }
     val projects = remember { mutableStateListOf<ProjectsBrowser.ProjectInfo>() }
+
+    var clickedProject by remember { mutableStateOf<ProjectsBrowser.ProjectInfo?>(null) }
+    var showFabActionSheet by remember { mutableStateOf(false) }
+    var converterTargetProject by remember { mutableStateOf<File?>(null) }
+    var showConverterSheet by remember { mutableStateOf(false) }
+
+    val setupNeeded = remember(refreshTrigger, Settings.auto_setup_completed) { AutoSetup.isSetupNeeded() }
 
     LaunchedEffect(refreshTrigger, activeProjectPath) {
         loading = true
@@ -230,18 +262,32 @@ fun ProjectsFragment(
         loading = false
     }
 
+    val filteredProjects =
+        remember(projects.toList(), searchQuery) {
+            if (searchQuery.isBlank()) projects.toList()
+            else {
+                val q = searchQuery.trim().lowercase()
+                projects.filter {
+                    it.name.lowercase().contains(q) ||
+                        it.type.label.lowercase().contains(q) ||
+                        (it.packageName?.lowercase()?.contains(q) == true)
+                }
+            }
+        }
+
     Box(modifier = modifier.fillMaxSize()) {
         Column(
             modifier =
                 Modifier.fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 14.dp)
-                    .padding(bottom = 88.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                    .padding(bottom = 92.dp)
+                    .animateContentSize(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Header Banner
+            // Clean Workspace Header Card
             ElevatedCard(
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(22.dp),
                 colors =
                     CardDefaults.elevatedCardColors(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -249,24 +295,24 @@ fun ProjectsFragment(
                     ),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
+                Column(modifier = Modifier.fillMaxWidth().padding(18.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(
                             shape = RoundedCornerShape(14.dp),
                             color = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(46.dp),
+                            modifier = Modifier.size(44.dp),
                         ) {
                             Icon(
                                 painter = painterResource(drawables.folder_code),
                                 contentDescription = null,
-                                modifier = Modifier.padding(11.dp),
+                                modifier = Modifier.padding(10.dp),
                             )
                         }
                         Spacer(Modifier.width(14.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Projects & Repositories",
+                                text = "Projects",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                             )
@@ -274,49 +320,74 @@ fun ProjectsFragment(
                             Text(
                                 text =
                                     if (loading) "Scanning workspace…"
-                                    else "${projects.size} project$plural in Arse IDE sandbox",
+                                    else "${projects.size} project$plural in workspace · Tap + for actions",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
                             )
                         }
                         IconButton(onClick = { refreshTrigger++ }) {
-                            Icon(painterResource(drawables.refresh), contentDescription = "Refresh projects")
+                            Icon(painterResource(drawables.refresh), contentDescription = "Refresh")
                         }
                     }
 
-                    Spacer(Modifier.height(14.dp))
+                    if (projects.size > 1) {
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            singleLine = true,
+                            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                            placeholder = { Text("Filter projects by name, type, or ID…") },
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
 
-                    // Quick Action Row
+            // If Auto-Setup was skipped on first launch, always provide a 1-tap setup banner
+            if (setupNeeded) {
+                OutlinedCard(
+                    shape = RoundedCornerShape(18.dp),
+                    colors =
+                        CardDefaults.outlinedCardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        FilledTonalButton(
-                            onClick = onCloneGitRepo,
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(38.dp),
                         ) {
-                            Icon(painterResource(drawables.git), contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Clone Git", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Icon(
+                                painter = painterResource(drawables.terminal),
+                                contentDescription = null,
+                                modifier = Modifier.padding(9.dp),
+                            )
                         }
-                        FilledTonalButton(
-                            onClick = onOpenHorizonPorter,
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                        ) {
-                            Icon(painterResource(drawables.extension), contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Port to .hmod", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text =
+                                    if (!isTerminalInstalled()) "Linux Sandbox Not Installed"
+                                    else "Toolchain Auto-Setup Incomplete",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = "Install Ubuntu 24.04 + JDK, Python, Node, Git & C/C++ compilers automatically.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
-                        OutlinedButton(
-                            onClick = onOpenFolderSheet,
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                        ) {
-                            Icon(painterResource(drawables.outline_folder), contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Open Dir", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        FilledTonalButton(onClick = { showAutoSetupDialogGlobal = true }) {
+                            Text("Auto-Setup")
                         }
                     }
                 }
@@ -327,9 +398,9 @@ fun ProjectsFragment(
                     Box(modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 3.dp)
                     }
-                projects.isEmpty() ->
+                filteredProjects.isEmpty() ->
                     OutlinedCard(
-                        shape = RoundedCornerShape(22.dp),
+                        shape = RoundedCornerShape(20.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(
@@ -340,75 +411,340 @@ fun ProjectsFragment(
                                 painter = painterResource(drawables.folder),
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(44.dp),
+                                modifier = Modifier.size(42.dp),
                             )
-                            Spacer(Modifier.height(12.dp))
+                            Spacer(Modifier.height(10.dp))
                             Text(
-                                text = "No projects yet",
+                                text = if (searchQuery.isNotBlank()) "No matching projects" else "No projects yet",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                             )
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                text = "Tap the + New Project FAB below to create an Android app, Horizon .hmod mod, or Fabric/Java mod.",
+                                text = "Tap the + button below to create a project, open a folder, clone a Git repo, or convert a .jar mod.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            Spacer(Modifier.height(14.dp))
+                            Button(onClick = { showFabActionSheet = true }) {
+                                Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Open + Menu")
+                            }
                         }
                     }
                 else ->
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        projects.forEach { project ->
+                        filteredProjects.forEach { project ->
                             val isActive = activeProjectPath == project.dir.absolutePath
                             ProjectCard(
                                 project = project,
                                 isActive = isActive,
-                                onClick = { onOpenProject(project.dir) },
+                                onClick = { clickedProject = project },
                             )
                         }
                     }
             }
         }
 
-        // Material 3 FAB Stack in bottom-right of the Projects tab
-        Column(
+        ExtendedFloatingActionButton(
+            onClick = { showFabActionSheet = true },
+            icon = { Icon(Icons.Outlined.Add, contentDescription = "Quick Project Actions") },
+            text = { Text("Add / Open", fontWeight = FontWeight.SemiBold) },
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+        )
+    }
+
+    // Interactive sheet when clicking a project card
+    clickedProject?.let { proj ->
+        val isMcJavaMod =
+            proj.type == DetectedProjectType.FABRIC_MOD || proj.type == DetectedProjectType.FORGE_MOD
+        ModalBottomSheet(
+            onDismissRequest = { clickedProject = null },
+            shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
         ) {
-            SmallFloatingActionButton(
-                onClick = { onCreateProject(ProjectTemplate.HORIZON_CONTENT_MOD) },
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        painter = painterResource(drawables.extension),
-                        contentDescription = "New Horizon Mod",
-                        modifier = Modifier.size(18.dp),
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(42.dp),
+                    ) {
+                        Icon(
+                            painter = painterResource(iconForProjectType(proj.type)),
+                            contentDescription = null,
+                            modifier = Modifier.padding(9.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = proj.name,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = proj.type.label,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
+
+                ActionSheetRow(
+                    icon = drawables.folder_code,
+                    title = "Open in Editor",
+                    subtitle = "Browse files and edit source code",
+                    highlight = true,
+                    onClick = {
+                        val dir = proj.dir
+                        clickedProject = null
+                        onOpenProject(dir)
+                    },
+                )
+
+                ActionSheetRow(
+                    icon = drawables.run,
+                    title =
+                        if (proj.type == DetectedProjectType.HORIZON_MIXIN_MOD)
+                            "Compile & Package .hnmod"
+                        else "Build / Run Project",
+                    subtitle = "Run background build in sandbox",
+                    onClick = {
+                        val dir = proj.dir
+                        clickedProject = null
+                        onRunBuildProject(dir)
+                    },
+                )
+
+                if (isMcJavaMod) {
+                    ActionSheetRow(
+                        icon = drawables.extension,
+                        title = "Convert to Horizon .hnmod",
+                        subtitle = "Port this ${proj.type.label} into a native .hnmod bundle",
+                        onClick = {
+                            val dir = proj.dir
+                            clickedProject = null
+                            converterTargetProject = dir
+                            showConverterSheet = true
+                        },
                     )
-                    Spacer(Modifier.width(6.dp))
-                    Text("New .hmod", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                }
+
+                ActionSheetRow(
+                    icon = drawables.terminal,
+                    title = "Open Terminal Here",
+                    subtitle = proj.dir.name,
+                    onClick = {
+                        val dir = proj.dir
+                        clickedProject = null
+                        if (mainActivity != null) {
+                            launchTerminal(
+                                activity = mainActivity,
+                                terminalCommand =
+                                    TerminalCommand(
+                                        sandbox = true,
+                                        exe = "/bin/bash",
+                                        args = arrayOf("-l"),
+                                        id = "proj_${dir.name}",
+                                        terminatePreviousSession = false,
+                                        workingDir = ProjectRunner.toSandboxPath(dir.absolutePath),
+                                    ),
+                            )
+                        }
+                    },
+                )
+            }
+        }
+    }
+
+    // Fast `+` FAB Sheet containing ALL classic `+` options + .hnmod converter in one fast menu
+    if (showFabActionSheet) {
+        val is11Plus = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+        val isManager = is11Plus && Environment.isExternalStorageManager()
+        val legacyGranted =
+            !is11Plus &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) ==
+                    PackageManager.PERMISSION_GRANTED
+        val storageRoot = Environment.getExternalStorageDirectory()
+        val canOpenInternalStorage = (isManager || legacyGranted) && storageRoot.canRead()
+
+        ModalBottomSheet(
+            onDismissRequest = { showFabActionSheet = false },
+            shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+        ) {
+            Column(
+                modifier =
+                    Modifier.fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp)
+                        .padding(bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = "Quick Actions (+)",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(2.dp))
+
+                ActionSheetRow(
+                    icon = drawables.folder_code,
+                    title = stringResource(strings.create_project),
+                    subtitle = stringResource(strings.create_project_desc),
+                    highlight = true,
+                    onClick = {
+                        showFabActionSheet = false
+                        onCreateProject(ProjectTemplate.MINECRAFT_MOD)
+                    },
+                )
+
+                ActionSheetRow(
+                    icon = drawables.extension,
+                    title = "Convert Fabric / Forge Mod or .jar to .hnmod",
+                    subtitle = "Pick a .jar file with the system picker or convert a workspace mod",
+                    onClick = {
+                        showFabActionSheet = false
+                        converterTargetProject = null
+                        showConverterSheet = true
+                    },
+                )
+
+                ActionSheetRow(
+                    icon = drawables.file_symlink,
+                    title = stringResource(strings.open_directory),
+                    subtitle = stringResource(strings.open_dir_desc),
+                    onClick = {
+                        showFabActionSheet = false
+                        onOpenFolderSheet()
+                    },
+                )
+
+                ActionSheetRow(
+                    icon = drawables.git,
+                    title = stringResource(strings.clone_repo),
+                    subtitle = stringResource(strings.clone_repo_desc),
+                    onClick = {
+                        showFabActionSheet = false
+                        onCloneGitRepo()
+                    },
+                )
+
+                if (canOpenInternalStorage) {
+                    ActionSheetRow(
+                        icon = drawables.android,
+                        title = stringResource(strings.internal_storage),
+                        subtitle = stringResource(strings.open_internal_storage),
+                        onClick = {
+                            showFabActionSheet = false
+                            onOpenProject(storageRoot)
+                        },
+                    )
+                }
+
+                ActionSheetRow(
+                    icon = drawables.terminal,
+                    title = stringResource(strings.terminal_home),
+                    subtitle = stringResource(strings.terminal_home_desc),
+                    onClick = {
+                        showFabActionSheet = false
+                        onOpenProject(sandboxHomeDir())
+                    },
+                )
+
+                if (setupNeeded) {
+                    ActionSheetRow(
+                        icon = drawables.bolt,
+                        title = "Run Sandbox & Toolchain Auto-Setup",
+                        subtitle = "Download Ubuntu 24.04 rootfs and install compilers automatically",
+                        onClick = {
+                            showFabActionSheet = false
+                            showAutoSetupDialogGlobal = true
+                        },
+                    )
                 }
             }
+        }
+    }
 
-            ExtendedFloatingActionButton(
-                onClick = { onCreateProject(ProjectTemplate.ANDROID_COMPOSE) },
-                icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                text = { Text("New Project", fontWeight = FontWeight.SemiBold) },
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+    if (showConverterSheet) {
+        HnmodConverterSheet(
+            initialProjectDir = converterTargetProject,
+            onDismiss = { showConverterSheet = false },
+            onOpenConvertedProject = { dir ->
+                showConverterSheet = false
+                refreshTrigger++
+                onOpenProject(dir)
+            },
+            onBuildConvertedProject = { dir ->
+                showConverterSheet = false
+                refreshTrigger++
+                onRunBuildProject(dir)
+            },
+        )
+    }
+}
+
+@Composable
+private fun ActionSheetRow(
+    icon: Int,
+    title: String,
+    subtitle: String,
+    highlight: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color =
+            if (highlight) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor =
+            if (highlight) MaterialTheme.colorScheme.onPrimaryContainer
+            else MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                painter = painterResource(icon),
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color =
+                        if (highlight) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                painter = painterResource(drawables.chevron_right),
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
             )
         }
     }
 }
 
-/**
- * Bottom sheet listing every project/repository under the sandbox home.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectsBrowserSheet(onDismiss: () -> Unit, onOpenProject: (File) -> Unit) {
@@ -446,15 +782,15 @@ fun ProjectsBrowserSheet(onDismiss: () -> Unit, onOpenProject: (File) -> Unit) {
                 Spacer(Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Projects & Repositories",
+                        text = "Projects",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.SemiBold,
                     )
                     val pluralSuffix = if (projects.size == 1) "" else "s"
                     Text(
                         text =
-                            if (loading) "Scanning your workspace…"
-                            else "${projects.size} project$pluralSuffix in your workspace",
+                            if (loading) "Scanning…"
+                            else "${projects.size} project$pluralSuffix",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -470,20 +806,11 @@ fun ProjectsBrowserSheet(onDismiss: () -> Unit, onOpenProject: (File) -> Unit) {
                     }
                 projects.isEmpty() ->
                     Box(modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                painter = painterResource(drawables.folder),
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(44.dp),
-                            )
-                            Spacer(Modifier.height(12.dp))
-                            Text(
-                                "No projects yet — create one or clone a repository to get started.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        Text(
+                            "No projects found.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 else ->
                     Column(
@@ -505,8 +832,18 @@ private fun ProjectCard(
     isActive: Boolean,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by
+        animateFloatAsState(
+            targetValue = if (isPressed) 0.98f else 1f,
+            animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMedium),
+            label = "projectCardScale",
+        )
+
     OutlinedCard(
         onClick = onClick,
+        interactionSource = interactionSource,
         shape = RoundedCornerShape(18.dp),
         colors =
             CardDefaults.outlinedCardColors(
@@ -514,7 +851,11 @@ private fun ProjectCard(
                     if (isActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                     else MaterialTheme.colorScheme.surfaceContainerLow,
             ),
-        modifier = Modifier.fillMaxWidth(),
+        modifier =
+            Modifier.fillMaxWidth().graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            },
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -571,7 +912,7 @@ private fun ProjectCard(
             Spacer(Modifier.height(10.dp))
             project.packageName?.let { MetaLine(icon = drawables.folder_code, label = "ID / Pkg", value = it) }
             MetaLine(icon = drawables.info, label = "Created", value = formatDate(project.createdAt))
-            MetaLine(icon = drawables.edit, label = "Last edited", value = formatRelative(project.lastEdited))
+            MetaLine(icon = drawables.edit, label = "Modified", value = formatRelative(project.lastEdited))
         }
     }
 }
@@ -590,7 +931,7 @@ private fun MetaLine(icon: Int, label: String, value: String) {
             text = label,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(84.dp),
+            modifier = Modifier.width(76.dp),
         )
         Text(
             text = value,

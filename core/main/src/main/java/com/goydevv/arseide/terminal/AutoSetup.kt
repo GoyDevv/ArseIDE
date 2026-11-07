@@ -8,6 +8,7 @@ import com.goydevv.arseide.exec.isTerminalInstalled
 import com.goydevv.arseide.exec.launchTerminal
 import com.goydevv.arseide.file.child
 import com.goydevv.arseide.file.localBinDir
+import com.goydevv.arseide.settings.Settings
 import com.goydevv.arseide.utils.application
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -23,15 +24,11 @@ import okhttp3.Request
 data class SetupEstimate(val storageText: String, val dataText: String, val etaText: String?)
 
 /**
- * Entry point + helpers for the first-launch Auto Setup flow.
- *
- * [launch] kicks off the sandbox + apt setup in the terminal (progress is mirrored into
- * [AutoSetupState] and shown by [AutoSetupOverlay]). [estimate] computes the storage/data/time
- * figures for the consent dialog, and [issueUrl] builds a prefilled GitHub issue for failures.
+ * Entry point + helpers for the Auto Setup flow (both on first launch and whenever invoked later
+ * from Terminal, Projects, or Settings if skipped initially).
  */
 object AutoSetup {
 
-    // Rough byte sizes used for estimates when exact figures aren't available.
     private const val MB = 1024.0 * 1024.0
     private const val ROOTFS_DOWNLOAD_FALLBACK = 55L * 1024 * 1024 // ~55 MB compressed rootfs
     private const val ROOTFS_EXTRACTED = 520L * 1024 * 1024 // ~520 MB extracted
@@ -39,14 +36,11 @@ object AutoSetup {
     private const val APT_INSTALLED = 260L * 1024 * 1024 // ~260 MB installed on disk
     private const val APT_FIXED_SECONDS = 90 // non-download time (extract/configure)
 
-    private fun rootfsUrl(): String {
-        val abi = Build.SUPPORTED_ABIS
-        return when {
-            abi.contains("x86_64") -> XedConstants.ROOTFS_X64
-            abi.contains("arm64-v8a") -> XedConstants.ROOTFS_ARM64
-            else -> XedConstants.ROOTFS_ARM
-        }
-    }
+    fun rootfsCandidateUrls(): List<String> = XedConstants.rootfsUrlsForAbis(Build.SUPPORTED_ABIS)
+
+    /** Returns true if either the sandbox rootfs isn't installed or the apt toolchain setup was never completed. */
+    fun isSetupNeeded(): Boolean =
+        runCatching { !isTerminalInstalled() || !Settings.auto_setup_completed }.getOrDefault(true)
 
     /** Launch the terminal and run the auto-setup script. Safe to call from the main thread. */
     fun launch(activity: Activity) {
@@ -65,14 +59,28 @@ object AutoSetup {
         )
     }
 
+    /** Launch auto-setup directly inside an already-open Terminal activity. */
+    fun startInCurrentTerminal() {
+        setupAssetFile("auto_setup")
+        AutoSetupState.begin(AutoSetupState.SESSION_ID)
+        com.goydevv.arseide.exec.pendingCommand =
+            TerminalCommand(
+                sandbox = true,
+                exe = "/bin/bash",
+                args = arrayOf(localBinDir().child("auto_setup").absolutePath),
+                id = AutoSetupState.SESSION_ID,
+                terminatePreviousSession = true,
+            )
+    }
+
     private fun humanSize(bytes: Long): String {
         val mb = bytes / MB
         return if (mb >= 1024) String.format(Locale.US, "%.1f GB", mb / 1024) else "${mb.toInt()} MB"
     }
 
     /**
-     * Build the storage/data/time estimate. Performs a short network probe (content length + a
-     * quick speed sample) on an IO dispatcher; always returns something usable even offline.
+     * Build the storage/data/time estimate. Performs a short network probe across candidate
+     * rootfs mirrors on an IO dispatcher; always returns something usable even offline.
      */
     suspend fun estimate(): SetupEstimate =
         withContext(Dispatchers.IO) {
@@ -82,33 +90,46 @@ object AutoSetup {
             var speedBytesPerSec: Double? = null
 
             if (!sandboxInstalled) {
-                runCatching {
-                    val client =
-                        OkHttpClient.Builder()
-                            .connectTimeout(8, TimeUnit.SECONDS)
-                            .readTimeout(8, TimeUnit.SECONDS)
-                            .build()
+                val client =
+                    OkHttpClient.Builder()
+                        .connectTimeout(6, TimeUnit.SECONDS)
+                        .readTimeout(6, TimeUnit.SECONDS)
+                        .followRedirects(true)
+                        .build()
 
-                    // Exact compressed download size.
-                    client.newCall(Request.Builder().url(rootfsUrl()).head().build()).execute().use { resp ->
-                        resp.header("Content-Length")?.toLongOrNull()?.let { if (it > 0) rootfsDownload = it }
-                    }
+                for (candidateUrl in rootfsCandidateUrls()) {
+                    val ok =
+                        runCatching {
+                                client.newCall(Request.Builder().url(candidateUrl).head().build()).execute().use { resp ->
+                                    if (!resp.isSuccessful) return@use false
+                                    resp.header("Content-Length")?.toLongOrNull()?.let {
+                                        if (it > 0) rootfsDownload = it
+                                    }
+                                    true
+                                }
+                            }
+                            .getOrDefault(false)
+                    if (!ok) continue
 
-                    // Quick speed sample: read ~1.5 MB and time it.
-                    val start = System.nanoTime()
-                    var read = 0L
-                    client.newCall(Request.Builder().url(rootfsUrl()).build()).execute().use { resp ->
-                        resp.body.byteStream().use { input ->
-                            val buf = ByteArray(16 * 1024)
-                            while (read < 1_500_000) {
-                                val n = input.read(buf)
-                                if (n < 0) break
-                                read += n
+                    runCatching {
+                        val start = System.nanoTime()
+                        var read = 0L
+                        client.newCall(Request.Builder().url(candidateUrl).build()).execute().use { resp ->
+                            if (resp.isSuccessful) {
+                                resp.body.byteStream().use { input ->
+                                    val buf = ByteArray(16 * 1024)
+                                    while (read < 1_200_000) {
+                                        val n = input.read(buf)
+                                        if (n < 0) break
+                                        read += n
+                                    }
+                                }
                             }
                         }
+                        val secs = (System.nanoTime() - start) / 1_000_000_000.0
+                        if (read > 0 && secs > 0.05) speedBytesPerSec = read / secs
                     }
-                    val secs = (System.nanoTime() - start) / 1_000_000_000.0
-                    if (read > 0 && secs > 0.05) speedBytesPerSec = read / secs
+                    break
                 }
             }
 
@@ -134,7 +155,6 @@ object AutoSetup {
     /** A prefilled GitHub "new issue" URL containing the failure log and device information. */
     fun issueUrl(log: String): String {
         val device = buildDeviceInfo()
-        // Keep the log within a sane URL length; GitHub/browsers cap around 8 KB.
         val trimmedLog = if (log.length > 5000) "...(truncated)...\n" + log.takeLast(5000) else log
         val body =
             buildString {

@@ -37,9 +37,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/**
- * Material You (Material 3) launch screen for Arse IDE (`com.goydevv.arseide`).
- */
 @Composable
 fun SplashScreen(onFinish: () -> Unit) {
     val intro = remember { Animatable(0f) }
@@ -50,20 +47,20 @@ fun SplashScreen(onFinish: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
 
     LaunchedEffect(Unit) {
-        launch { intro.animateTo(1f, tween(durationMillis = 420, easing = FastOutSlowInEasing)) }
+        launch { intro.animateTo(1f, tween(durationMillis = 400, easing = FastOutSlowInEasing)) }
         coroutineScope {
             val creep =
                 launch {
-                    runCatching { progress.animateTo(0.9f, tween(durationMillis = 1800, easing = LinearEasing)) }
+                    runCatching { progress.animateTo(0.9f, tween(durationMillis = 1600, easing = LinearEasing)) }
                 }
             awaitAppIdle()
             creep.cancel()
         }
-        progress.animateTo(1f, tween(durationMillis = 180, easing = FastOutSlowInEasing))
-        delay(140)
+        progress.animateTo(1f, tween(durationMillis = 160, easing = FastOutSlowInEasing))
+        delay(120)
         coroutineScope {
-            launch { zoom.animateTo(1.04f, tween(durationMillis = 320, easing = FastOutSlowInEasing)) }
-            exit.animateTo(0f, tween(durationMillis = 320, easing = FastOutSlowInEasing))
+            launch { zoom.animateTo(1.03f, tween(durationMillis = 280, easing = FastOutSlowInEasing)) }
+            exit.animateTo(0f, tween(durationMillis = 280, easing = FastOutSlowInEasing))
         }
         onFinish()
     }
@@ -71,8 +68,7 @@ fun SplashScreen(onFinish: () -> Unit) {
     val status =
         when {
             progress.value >= 1f -> "Ready"
-            progress.value >= 0.75f -> "Loading Horizon SDK & toolchains…"
-            progress.value >= 0.4f -> "Loading Material You workspace…"
+            progress.value >= 0.5f -> "Loading workspace…"
             else -> "Starting Arse IDE…"
         }
 
@@ -93,26 +89,26 @@ fun SplashScreen(onFinish: () -> Unit) {
                         val s = (0.94f + 0.06f * a) * zoom.value
                         scaleX = s
                         scaleY = s
-                        translationY = (1f - a) * 16.dp.toPx()
+                        translationY = (1f - a) * 14.dp.toPx()
                     },
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(horizontal = 40.dp, vertical = 36.dp),
+                modifier = Modifier.padding(horizontal = 40.dp, vertical = 34.dp),
             ) {
                 Surface(
-                    shape = RoundedCornerShape(22.dp),
+                    shape = RoundedCornerShape(20.dp),
                     color = scheme.primaryContainer,
                     contentColor = scheme.onPrimaryContainer,
-                    modifier = Modifier.size(68.dp),
+                    modifier = Modifier.size(64.dp),
                 ) {
                     Icon(
                         painter = painterResource(drawables.folder_code),
                         contentDescription = "Arse IDE",
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(15.dp),
                     )
                 }
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(16.dp))
                 Text(
                     text = "Arse IDE",
                     style = MaterialTheme.typography.headlineLarge,
@@ -126,20 +122,20 @@ fun SplashScreen(onFinish: () -> Unit) {
                     contentColor = scheme.onSecondaryContainer,
                 ) {
                     Text(
-                        text = "Android · Fabric · Horizon .hmod",
+                        text = "Android · Fabric · Horizon .hnmod",
                         style = MaterialTheme.typography.labelMedium,
-                        letterSpacing = 0.8.sp,
+                        letterSpacing = 0.6.sp,
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
                     )
                 }
-                Spacer(Modifier.height(28.dp))
+                Spacer(Modifier.height(26.dp))
                 LinearProgressIndicator(
                     progress = { progress.value },
-                    modifier = Modifier.width(220.dp).height(6.dp).clip(RoundedCornerShape(3.dp)),
+                    modifier = Modifier.width(210.dp).height(6.dp).clip(RoundedCornerShape(3.dp)),
                     color = scheme.primary,
                     trackColor = scheme.surfaceContainerHighest,
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(10.dp))
                 Text(
                     text = status,
                     style = MaterialTheme.typography.labelSmall,

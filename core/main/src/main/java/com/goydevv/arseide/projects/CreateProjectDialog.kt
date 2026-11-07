@@ -1,5 +1,6 @@
 package com.goydevv.arseide.projects
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -21,7 +22,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -35,7 +35,6 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,23 +53,21 @@ import com.goydevv.arseide.resources.strings
 import java.io.File
 
 /**
- * Material 3 bottom sheet that gathers everything needed to scaffold a project (including the 4
- * Horizon Mod templates, Fabric/Forge Java mods, and clean Material 3 Android apps) and emits a
- * [ProjectConfig].
+ * Create Project bottom sheet.
+ *
+ * Primary templates (Minecraft Java Mod, Android Compose, Python, Node.js, Web, Empty) appear first,
+ * and Horizon `.hnmod` templates appear at the very back of the template list.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateProjectDialog(
     projectsDir: File,
-    initialTemplate: ProjectTemplate = ProjectTemplate.ANDROID_COMPOSE,
+    initialTemplate: ProjectTemplate = ProjectTemplate.MINECRAFT_MOD,
     onDismiss: () -> Unit,
     onCreate: (ProjectConfig) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
     var template by remember { mutableStateOf(initialTemplate) }
-    var categoryFilter by remember {
-        mutableIntStateOf(if (initialTemplate.isHorizonTemplate) 1 else 0)
-    } // 0 = All, 1 = Horizon (.hmod), 2 = Android & JVM, 3 = Scripting & Web
     var modLoader by remember { mutableStateOf(ModLoader.FABRIC) }
     var packageName by remember { mutableStateOf("") }
     var packageEdited by remember { mutableStateOf(false) }
@@ -160,32 +157,17 @@ fun CreateProjectDialog(
         }
     val canCreate = trimmedName.isNotEmpty() && nameError == null
 
-    val filteredTemplates =
-        remember(categoryFilter) {
-            when (categoryFilter) {
-                1 -> ProjectTemplate.entries.filter { it.isHorizonTemplate }
-                2 -> listOf(ProjectTemplate.ANDROID_COMPOSE, ProjectTemplate.MINECRAFT_MOD)
-                3 ->
-                    listOf(
-                        ProjectTemplate.PYTHON3,
-                        ProjectTemplate.NODEJS,
-                        ProjectTemplate.WEB,
-                        ProjectTemplate.NONE,
-                    )
-                else -> ProjectTemplate.entries
-            }
-        }
-
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             modifier =
                 Modifier.fillMaxWidth()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp)
-                    .padding(bottom = 28.dp),
+                    .padding(bottom = 28.dp)
+                    .animateContentSize(),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            // ---- Header -------------------------------------------------------------------------
+            // Header
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -224,45 +206,14 @@ fun CreateProjectDialog(
                 }
             }
 
-            // ---- Template chooser with category chips -------------------------------------------
+            // Template chooser (Horizon .hnmod templates are at the very end)
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 FormSectionHeader(icon = drawables.widgets, title = stringResource(strings.project_template))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    val categories = listOf("All", "Horizon (.hmod)", "Android & Java", "Python / Web")
-                    categories.forEachIndexed { idx, label ->
-                        FilterChip(
-                            selected = categoryFilter == idx,
-                            onClick = {
-                                categoryFilter = idx
-                                val nextList =
-                                    when (idx) {
-                                        1 -> ProjectTemplate.entries.filter { it.isHorizonTemplate }
-                                        2 -> listOf(ProjectTemplate.ANDROID_COMPOSE, ProjectTemplate.MINECRAFT_MOD)
-                                        3 ->
-                                            listOf(
-                                                ProjectTemplate.PYTHON3,
-                                                ProjectTemplate.NODEJS,
-                                                ProjectTemplate.WEB,
-                                                ProjectTemplate.NONE,
-                                            )
-                                        else -> ProjectTemplate.entries
-                                    }
-                                if (template !in nextList) template = nextList.first()
-                            },
-                            label = { Text(label) },
-                        )
-                    }
-                }
-
                 Row(
                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    filteredTemplates.forEach { t ->
+                    ProjectTemplate.entries.forEach { t ->
                         TemplateCard(template = t, selected = template == t) { template = t }
                     }
                 }
@@ -273,9 +224,9 @@ fun CreateProjectDialog(
                 )
             }
 
-            // ---- Project details ---------------------------------------------------------------
+            // Project details
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                FormSectionHeader(icon = drawables.edit, title = "Project details")
+                FormSectionHeader(icon = drawables.edit, title = "Project")
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -288,32 +239,21 @@ fun CreateProjectDialog(
                 )
             }
 
-            // ---- Horizon Mod (.hmod / .hnmod) options -------------------------------------------
+            // Horizon .hnmod options
             if (template.isHorizonTemplate) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    FormSectionHeader(icon = drawables.extension, title = "Horizon Mod Manifest")
+                    FormSectionHeader(icon = drawables.extension, title = "Horizon .hnmod")
                     OutlinedTextField(
                         value = modId,
                         onValueChange = { modId = it },
                         singleLine = true,
-                        label = { Text("Mod ID (lowercase [a-z0-9_])") },
+                        label = { Text("Mod ID") },
                         placeholder = {
                             Text(
                                 ProjectConfig(name = trimmedName, template = template, parentDir = parentDir)
                                     .resolvedModId()
                             )
                         },
-                        supportingText = {
-                            Text("Normalized automatically; never 'minecraft', 'c', or 'horizon'.")
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = author,
-                        onValueChange = { author = it },
-                        singleLine = true,
-                        label = { Text(stringResource(strings.author_name)) },
-                        leadingIcon = { Icon(painterResource(drawables.person), contentDescription = null) },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(
@@ -332,10 +272,10 @@ fun CreateProjectDialog(
                 }
             }
 
-            // ---- Minecraft Java Mod options -----------------------------------------------------
+            // Minecraft Java Mod options
             if (template.showsMinecraftOptions) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    FormSectionHeader(icon = drawables.coffee, title = "Mod details")
+                    FormSectionHeader(icon = drawables.coffee, title = "Mod settings")
                     LabeledDropdown(
                         label = stringResource(strings.mod_loader),
                         selected = modLoader.displayName,
@@ -379,7 +319,7 @@ fun CreateProjectDialog(
                 }
             }
 
-            // ---- Package + author + JDK/SDK (Minecraft + Android) -------------------------------
+            // Package + author + JDK/SDK
             if (template.showsPackageName) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     FormSectionHeader(icon = drawables.folder_code, title = stringResource(strings.package_name))
@@ -392,12 +332,6 @@ fun CreateProjectDialog(
                         singleLine = true,
                         label = { Text(stringResource(strings.package_name)) },
                         leadingIcon = { Icon(painterResource(drawables.folder_code), contentDescription = null) },
-                        supportingText = {
-                            Text(
-                                if (packageEdited) "Custom package name"
-                                else "Auto-filled from project name & author — edit to override"
-                            )
-                        },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(
@@ -423,7 +357,7 @@ fun CreateProjectDialog(
                     if (template == ProjectTemplate.ANDROID_COMPOSE) {
                         LabeledDropdown(
                             label =
-                                "Android SDK (API level)" +
+                                "Android SDK" +
                                     if (loadingSdk) " (${stringResource(strings.loading_versions)})" else "",
                             selected = AndroidSdkVersions.label(sdkVersion.ifBlank { sdkVersions.first() }),
                             options = sdkVersions.map { AndroidSdkVersions.label(it) },
@@ -433,34 +367,30 @@ fun CreateProjectDialog(
                 }
             }
 
-            // ---- Options ------------------------------------------------------------------------
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                FormSectionHeader(icon = drawables.settings, title = "Options")
-                OutlinedCard(
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth(),
+            // Git Option
+            OutlinedCard(
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Icon(
-                                painter = painterResource(drawables.git),
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(22.dp),
-                            )
-                            Spacer(Modifier.width(14.dp))
-                            Text(stringResource(strings.git_init))
-                        }
-                        Switch(checked = initGit, onCheckedChange = { initGit = it })
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(
+                            painter = painterResource(drawables.git),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Spacer(Modifier.width(14.dp))
+                        Text(stringResource(strings.git_init))
                     }
+                    Switch(checked = initGit, onCheckedChange = { initGit = it })
                 }
             }
 
-            // ---- Status + location (compact) ----------------------------------------------------
             when (val state = toolState) {
                 ToolState.None -> {}
                 ToolState.Checking ->
@@ -490,14 +420,10 @@ fun CreateProjectDialog(
             }
             ToolStatusRow(
                 icon = drawables.folder,
-                text =
-                    stringResource(strings.project_location) +
-                        ": " +
-                        File(parentDir, trimmedName.ifBlank { "<name>" }).absolutePath,
+                text = File(parentDir, trimmedName.ifBlank { "<name>" }).absolutePath,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            // ---- Actions ------------------------------------------------------------------------
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -548,10 +474,10 @@ private fun TemplateCard(template: ProjectTemplate, selected: Boolean, onClick: 
         border =
             if (selected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
             else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-        modifier = Modifier.width(120.dp).clickable(onClick = onClick),
+        modifier = Modifier.width(114.dp).clickable(onClick = onClick),
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 14.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {

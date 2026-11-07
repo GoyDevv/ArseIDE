@@ -1,6 +1,0 @@
-{
-  "type": "neoforge:add_features",
-  "biomes": "#minecraft:is_overworld",
-  "features": "minecraft:ore_emerald",
-  "step": "underground_ores"
-}

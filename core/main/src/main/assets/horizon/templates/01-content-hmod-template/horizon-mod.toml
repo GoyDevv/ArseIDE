@@ -1,9 +1,0 @@
-id = "aether_crystal"
-name = "Aether Crystal Content Template"
-version = "0.1.0"
-description = "Starter template for porting blocks, ores, weapons, creative tabs, effects, and projectiles."
-authors = ["YourName"]
-api = "0.2"
-side = "both"
-capabilities = ["registries"]
-namespaces = []

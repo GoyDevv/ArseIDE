@@ -80,7 +80,7 @@ internal fun ToolchainTopBar(
                 }
             }
             IconButton(enabled = refreshEnabled, onClick = onRefresh) {
-                Icon(painterResource(drawables.refresh), contentDescription = "Re-check")
+                Icon(painterResource(drawables.refresh), contentDescription = "Refresh")
             }
             IconButton(enabled = closeEnabled, onClick = onClose) {
                 Icon(painterResource(drawables.close), contentDescription = "Close")
@@ -281,8 +281,7 @@ internal fun ToolchainMessage(icon: Int, message: String, tint: Color = Color.Un
 
 internal fun iconForProjectType(type: DetectedProjectType): Int =
     when (type) {
-        DetectedProjectType.HORIZON_MOD -> drawables.extension
-        DetectedProjectType.HORIZON_MIXIN_MOD -> drawables.bolt
+        DetectedProjectType.HORIZON_MIXIN_MOD -> drawables.extension
         DetectedProjectType.FABRIC_MOD,
         DetectedProjectType.FORGE_MOD -> drawables.java
         DetectedProjectType.ANDROID -> drawables.android

@@ -235,7 +235,7 @@ class CrashActivity : ComponentActivity() {
                 "https://github.com/$repo"
             }
         } else {
-            "https://github.com/goydevv/arseide"
+            "https://github.com/GoyDevv/ArseIDE"
         }
         val url =
             "$baseUrl/issues/new?title=Crash%20Report&body=" +

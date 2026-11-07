@@ -13,10 +13,13 @@ import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -30,23 +33,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.goydevv.arseide.resources.drawables
 import com.goydevv.arseide.resources.strings
 import com.goydevv.arseide.terminal.AutoSetup
 import com.goydevv.arseide.terminal.SetupEstimate
 
 /**
- * First-launch Auto Setup consent — a full-screen screen (not a small dialog).
- *
- * Shows the storage/download estimate and (after a quick internet speed probe) an estimated time.
- * The user can agree ([onLaunch] starts the background setup) or skip — skipping first warns that
- * the IDE may break later with no support for manual fixes, and on confirmation calls
- * [onDismissForever].
+ * Global trigger so the user can open the Auto-Setup screen at any time from Settings,
+ * Projects, or Terminal if they skipped it on first launch.
  */
+var showAutoSetupDialogGlobal by mutableStateOf(false)
+
 @Composable
 fun AutoSetupDialog(onLaunch: () -> Unit, onDismissForever: () -> Unit) {
     val activity = LocalActivity.current
@@ -58,17 +61,22 @@ fun AutoSetupDialog(onLaunch: () -> Unit, onDismissForever: () -> Unit) {
     if (showDeclineWarning) {
         AlertDialog(
             onDismissRequest = { showDeclineWarning = false },
-            title = { Text(stringResource(strings.auto_setup_decline_title)) },
+            title = { Text("Skip sandbox setup for now?") },
             text = {
                 Text(
-                    stringResource(strings.auto_setup_decline_message),
+                    "You can still edit files, browse projects, and convert .jar mods. Whenever you open the Terminal or Settings later, you'll have a one-tap option to run Auto-Setup.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             },
             confirmButton = {
-                TextButton(onClick = { showDeclineWarning = false; onDismissForever() }) {
-                    Text(stringResource(strings.auto_setup_decline_confirm))
+                TextButton(
+                    onClick = {
+                        showDeclineWarning = false
+                        onDismissForever()
+                    }
+                ) {
+                    Text("Skip for Now")
                 }
             },
             dismissButton = {
@@ -81,20 +89,36 @@ fun AutoSetupDialog(onLaunch: () -> Unit, onDismissForever: () -> Unit) {
     }
 
     Dialog(
-        onDismissRequest = {},
+        onDismissRequest = { showDeclineWarning = true },
         properties =
             DialogProperties(
                 usePlatformDefaultWidth = false,
-                dismissOnBackPress = false,
+                dismissOnBackPress = true,
                 dismissOnClickOutside = false,
             ),
     ) {
-        Surface(modifier = Modifier.fillMaxSize()) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+        ) {
             Column(modifier = Modifier.fillMaxSize().safeContentPadding().padding(24.dp)) {
                 Column(
                     modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(56.dp),
+                    ) {
+                        Icon(
+                            painter = painterResource(drawables.terminal),
+                            contentDescription = null,
+                            modifier = Modifier.padding(14.dp),
+                        )
+                    }
+
                     Text(
                         text = stringResource(strings.auto_setup_title),
                         style = MaterialTheme.typography.headlineMedium,
@@ -103,25 +127,36 @@ fun AutoSetupDialog(onLaunch: () -> Unit, onDismissForever: () -> Unit) {
                     Text(
                         text = stringResource(strings.auto_setup_message),
                         style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    val est = estimate
-                    if (est == null) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                stringResource(strings.auto_setup_checking_speed),
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
+
+                    ElevatedCard(
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            val est = estimate
+                            if (est == null) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        stringResource(strings.auto_setup_checking_speed),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                }
+                            } else {
+                                InfoRow(stringResource(strings.auto_setup_storage), est.storageText)
+                                InfoRow(stringResource(strings.auto_setup_data), est.dataText)
+                                InfoRow(
+                                    stringResource(strings.auto_setup_eta),
+                                    est.etaText ?: stringResource(strings.auto_setup_eta_unknown),
+                                )
+                            }
                         }
-                    } else {
-                        InfoRow(stringResource(strings.auto_setup_storage), est.storageText)
-                        InfoRow(stringResource(strings.auto_setup_data), est.dataText)
-                        InfoRow(
-                            stringResource(strings.auto_setup_eta),
-                            est.etaText ?: stringResource(strings.auto_setup_eta_unknown),
-                        )
                     }
                 }
 
@@ -129,13 +164,13 @@ fun AutoSetupDialog(onLaunch: () -> Unit, onDismissForever: () -> Unit) {
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).height(48.dp),
                         onClick = { showDeclineWarning = true },
                     ) {
                         Text(stringResource(strings.auto_setup_skip), maxLines = 1)
                     }
                     Button(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).height(48.dp),
                         onClick = {
                             activity?.let { AutoSetup.launch(it) }
                             onLaunch()

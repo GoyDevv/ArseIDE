@@ -3,10 +3,10 @@ package com.goydevv.arseide.projects
 import com.goydevv.arseide.resources.drawables
 
 /**
- * Available project templates exposed by the "Create Project" flow.
+ * Project templates in the "Create Project" sheet.
  *
- * [recommendsSandbox] is true for templates whose toolchain (gradle, cargo wasm32, native npm modules,
- * python venvs, etc.) must run from an exec-capable Linux filesystem.
+ * Primary templates (Minecraft Java Mod, Android Compose, Python, Node.js, Web, Empty) are listed
+ * first, and Horizon Native Mod (`.hnmod`) templates are placed at the very end of the list.
  */
 enum class ProjectTemplate(
     val displayName: String,
@@ -15,73 +15,67 @@ enum class ProjectTemplate(
     val description: String,
     val showsPackageName: Boolean = false,
 ) {
-    ANDROID_COMPOSE(
-        "Android (Material 3)",
-        recommendsSandbox = true,
-        iconRes = drawables.android,
-        description = "Clean Jetpack Compose & Material You Android app (no test bloat, build cache enabled).",
-        showsPackageName = true,
-    ),
-    HORIZON_CONTENT_MOD(
-        "Horizon Content Mod (.hmod)",
-        recommendsSandbox = false,
-        iconRes = drawables.extension,
-        description = "Declarative Horizon API 0.2 content mod: blocks, items, creative tabs, effects, menus & 26.3 assets/data.",
-    ),
-    HORIZON_WASM_CLIENT_MOD(
-        "Horizon Client WASM Mod (.hmod)",
-        recommendsSandbox = true,
-        iconRes = drawables.rust,
-        description = "Rust cdylib (wasm32-unknown-unknown) client/hybrid mod linked to horizon-mod-sdk (HUD, UI, keybinds, raycast, storage).",
-    ),
-    HORIZON_WASM_SERVER_MOD(
-        "Horizon Server WASM Mod (.hmod)",
-        recommendsSandbox = true,
-        iconRes = drawables.server,
-        description = "Server-side Rust WASM mod (API 0.3, export_server_mod!) with block_break, block_use, player_join, world edits & commands.",
-    ),
-    HORIZON_NATIVE_MIXIN_MOD(
-        "Horizon Native Mixin (.hnmod)",
-        recommendsSandbox = true,
-        iconRes = drawables.bolt,
-        description = "Native Horizon Mixin mod (.hnmod) with horizon-mixin.toml and Rust hooks targeting horizon_client::game::native_hooks::Game.",
-    ),
     MINECRAFT_MOD(
         "Minecraft Java Mod",
         recommendsSandbox = true,
         iconRes = drawables.java,
-        description = "A Fabric or Forge Java mod, configured with resolved Gradle versions.",
+        description = "Fabric or Forge Java mod with Gradle wrapper.",
+        showsPackageName = true,
+    ),
+    ANDROID_COMPOSE(
+        "Android (Compose)",
+        recommendsSandbox = true,
+        iconRes = drawables.android,
+        description = "Jetpack Compose & Material 3 Android app.",
         showsPackageName = true,
     ),
     PYTHON3(
         "Python 3",
         recommendsSandbox = false,
         iconRes = drawables.python,
-        description = "A Python 3 project with a ready-to-run main.py and requirements.txt.",
+        description = "Python 3 script with main.py and requirements.txt.",
     ),
     PYTHON(
         "Python",
         recommendsSandbox = false,
         iconRes = drawables.python,
-        description = "A minimal Python project ready to run in the sandbox.",
+        description = "Minimal Python script.",
     ),
     NODEJS(
         "Node.js",
         recommendsSandbox = true,
         iconRes = drawables.javascript,
-        description = "A Node.js app with package.json and an entry script.",
+        description = "Node.js project with package.json and index.js.",
     ),
     WEB(
-        "Static Web (HTML/CSS/JS)",
+        "Static Web",
         recommendsSandbox = false,
         iconRes = drawables.html,
-        description = "A modern responsive website — HTML5, CSS, and JavaScript.",
+        description = "HTML5, CSS, and JavaScript starter.",
     ),
     NONE(
-        "Empty Project",
+        "Empty Folder",
         recommendsSandbox = false,
         iconRes = drawables.folder,
-        description = "Empty project — just a clean folder and README to start from.",
+        description = "Clean folder with README and .gitignore.",
+    ),
+    HORIZON_GAMEPLAY_HNMOD(
+        "Horizon Gameplay (.hnmod)",
+        recommendsSandbox = true,
+        iconRes = drawables.extension,
+        description = "Horizon Native Mod (.hnmod) with block break, key, and settings hooks.",
+    ),
+    HORIZON_HUD_COMMAND_HNMOD(
+        "Horizon HUD & Command (.hnmod)",
+        recommendsSandbox = true,
+        iconRes = drawables.bolt,
+        description = "Horizon Native Mod (.hnmod) with client HUD overlay and slash command hooks.",
+    ),
+    HORIZON_CRATE_ENGINE_HNMOD(
+        "Horizon Engine Crate (.hnmod)",
+        recommendsSandbox = true,
+        iconRes = drawables.rust,
+        description = "Horizon Native Mod (.hnmod) with companion Cargo crate under mixins/<id>/engine/.",
     );
 
     val showsMinecraftOptions: Boolean
@@ -89,10 +83,9 @@ enum class ProjectTemplate(
 
     val isHorizonTemplate: Boolean
         get() =
-            this == HORIZON_CONTENT_MOD ||
-                this == HORIZON_WASM_CLIENT_MOD ||
-                this == HORIZON_WASM_SERVER_MOD ||
-                this == HORIZON_NATIVE_MIXIN_MOD
+            this == HORIZON_GAMEPLAY_HNMOD ||
+                this == HORIZON_HUD_COMMAND_HNMOD ||
+                this == HORIZON_CRATE_ENGINE_HNMOD
 }
 
 /** Mod loaders supported by the Minecraft Java Mod template. */
@@ -102,8 +95,7 @@ enum class ModLoader(val displayName: String) {
 }
 
 /**
- * A fully resolved request to create a project. The dialog produces one of these and hands it to
- * [ProjectScaffolder].
+ * Resolved parameters for scaffolding a new project via [ProjectScaffolder].
  */
 data class ProjectConfig(
     val name: String,
@@ -120,10 +112,7 @@ data class ProjectConfig(
     val sdkVersion: String = "",
     val initGit: Boolean = false,
 ) {
-    /**
-     * Sanitised mod id derived from [modId] (falls back to the project name).
-     * Must match `^[a-z0-9_]{1,64}$` and never be `minecraft`, `c`, or `horizon`.
-     */
+    /** Sanitised mod id (`[a-z0-9_]{1,64}`, never `minecraft`, `c`, or `horizon`). */
     fun resolvedModId(): String {
         val reserved = setOf("minecraft", "c", "horizon")
         val base = modId.ifBlank { name }
@@ -143,16 +132,10 @@ data class ProjectConfig(
         return if (cleaned.first().isDigit()) "_$cleaned" else cleaned
     }
 
-    /** Lowercase alphanumeric slug of the author, used to build a package name. */
     fun authorSlug(): String = sanitizePkgSegment(author, "goydevv")
 
-    /** Lowercase alphanumeric slug of the project name. */
     fun nameSlug(): String = sanitizePkgSegment(name, "app")
 
-    /**
-     * Intelligently resolved package / applicationId. Uses the user-provided [packageName] when set,
-     * otherwise derives `com.<author>.<name>` from the project name and author.
-     */
     fun resolvedPackageName(): String =
         packageName
             .trim()
@@ -164,12 +147,9 @@ data class ProjectConfig(
             .let { if (it.size < 2) listOf("com", "goydevv") + it else it }
             .joinToString(".")
 
-    /** Package as a relative path (e.g. com.goydevv -> com/goydevv). */
     fun packagePath(): String = resolvedPackageName().replace('.', '/')
 
-    /** Android compile/target SDK API level; defaults to 35 when unset or invalid. */
     fun resolvedCompileSdk(): Int = sdkVersion.trim().toIntOrNull()?.takeIf { it in 21..99 } ?: 35
 
-    /** Android minSdk — 24 by default, but never above the chosen compile SDK. */
     fun resolvedMinSdk(): Int = minOf(24, resolvedCompileSdk())
 }

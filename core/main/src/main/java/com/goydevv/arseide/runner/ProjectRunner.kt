@@ -10,6 +10,7 @@ import com.goydevv.arseide.file.FileWrapper
 import com.goydevv.arseide.file.child
 import com.goydevv.arseide.file.localBinDir
 import com.goydevv.arseide.horizon.HorizonModPackager
+import com.goydevv.arseide.horizon.HorizonModPorter
 import com.goydevv.arseide.projects.DetectedProjectType
 import com.goydevv.arseide.projects.GradleConfig
 import com.goydevv.arseide.projects.ProjectTypeDetector
@@ -20,21 +21,20 @@ import com.goydevv.arseide.terminal.setupTerminalFiles
 import com.goydevv.arseide.utils.dialogRes
 import java.io.File
 import kotlin.coroutines.resume
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 
 /**
- * Project-aware "Run" entry point used by the editor's play button.
+ * Project-aware "Run / Build" orchestrator.
  *
- * Supports:
- *  - **Horizon Mod (`.hmod` / `.hnmod`)** – validates `horizon-mod.toml`, verifies 26.3 client item
- *    model dispatches, builds `mod.wasm` via `cargo` if `Cargo.toml` is present, and packages
- *    `<id>.hmod` / `<id>.hnmod`. Content-only `.hmod` mods package directly in-process even without
- *    the Linux sandbox installed!
- *  - **Python / Node / Rust / Go** – runs the project from its own folder in the terminal sandbox.
- *  - **Fabric / Forge / generic Gradle** – checks the JDK and runs `./gradlew build --build-cache`.
- *  - **Android** – exports ANDROID_HOME, runs `./gradlew assembleDebug --build-cache`, then installs
- *    the built APK.
- *  - **Static web** – opens the in-app HTML preview.
+ * - **Horizon Native Mod (`.hnmod`)**: Runs `cargo check` / `rustc` on the companion crate in the
+ *   background sandbox via `project_runner.sh`, validates the bundle against `Bundle::read` rules,
+ *   and packages `<id>.hnmod` without blocking the UI.
+ * - **Fabric / Forge / Gradle**: Runs `./gradlew build --build-cache`.
+ * - **Android**: Runs `./gradlew assembleDebug --build-cache` and prompts to install the APK.
+ * - **Python / Node / Rust / Go**: Runs the project from its root directory in the sandbox.
+ * - **Static Web**: Launches the in-app HTML preview.
  */
 object ProjectRunner {
 
@@ -61,11 +61,10 @@ object ProjectRunner {
         if (GradleConfig.firstBuildShown(rootFile)) return true
         return suspendCancellableCoroutine { cont ->
             dialogRes(
-                title = "Setting up \"${rootFile.name}\"",
+                title = "First build for \"${rootFile.name}\"",
                 msg =
-                    "The first Gradle build/sync can take around 10–20 minutes.\n\n" +
-                        "It downloads the Gradle dependencies (and, for Android projects, the SDK and build-tools) " +
-                        "over your connection. Later builds use the enabled Gradle build cache and are much faster.",
+                    "The initial Gradle build downloads SDK and project dependencies in the background. " +
+                        "Subsequent builds use the Gradle build cache and finish much faster.",
                 okRes = strings.ok,
                 cancelRes = strings.cancel,
                 onOk = {
@@ -107,25 +106,28 @@ object ProjectRunner {
 
         PhantomKillerBypass.ensureProtected(activity)
 
-        // Static web is previewed in-app via the existing HTML runner.
         if (type == DetectedProjectType.WEB) {
             HtmlRunner.run(activity, webEntry(rootFile, file))
             return
         }
 
-        // Horizon Mod (.hmod / .hnmod): if there's no Cargo.toml (or if the Linux sandbox isn't
-        // installed yet), validate and package directly in-process via HorizonModPackager!
-        if (type == DetectedProjectType.HORIZON_MOD || type == DetectedProjectType.HORIZON_MIXIN_MOD) {
-            val hasCargo = File(rootFile, "Cargo.toml").isFile
-            if (!hasCargo || !isTerminalInstalled()) {
-                val label = "Package · ${rootFile.name}"
+        // For .hnmod projects, ensure validate_and_pack_hnmod.py is present in tools/
+        if (type == DetectedProjectType.HORIZON_MIXIN_MOD) {
+            withContext(Dispatchers.IO) {
+                HorizonModPorter.copyBundledTools(File(rootFile, "tools"))
+                // Also run an immediate pre-package pass so <id>.hnmod is always up-to-date
+                HorizonModPackager.packageProject(rootFile)
+            }
+            if (!isTerminalInstalled()) {
+                val label = "Build .hnmod · ${rootFile.name}"
                 if (!RunOutputState.begin(label = label)) return
                 val pkgRes = HorizonModPackager.packageProject(rootFile)
                 val transcript = buildString {
-                    appendLine("==> Horizon Mod Validator & Packager")
-                    appendLine("Project : ${rootFile.absolutePath}")
-                    appendLine("Mod ID  : ${pkgRes.report.modId} (v${pkgRes.report.version}, API ${pkgRes.report.api})")
-                    appendLine("Content : ${pkgRes.report.declaredBlocks} block(s), ${pkgRes.report.declaredItems} item(s)")
+                    appendLine("==> Horizon .hnmod Validator & Packager")
+                    appendLine("Project  : ${rootFile.absolutePath}")
+                    appendLine("Mod ID   : ${pkgRes.report.modId} (v${pkgRes.report.version}, game ${pkgRes.report.game})")
+                    appendLine("Revisions: horizon=${pkgRes.report.horizonRev.take(10)}… mixins=${pkgRes.report.mixinsRev.take(10)}…")
+                    appendLine("Hooks API: ${pkgRes.report.hooksApi ?: 1}")
                     if (pkgRes.report.warnings.isNotEmpty()) {
                         appendLine()
                         pkgRes.report.warnings.forEach { appendLine("WARN: $it") }
@@ -143,7 +145,9 @@ object ProjectRunner {
         setupTerminalFiles()
         val sandboxRoot = toSandboxPath(rootPath)
         val sandboxFile = toSandboxPath(file.getAbsolutePath())
-        val label = "Run · ${rootFile.name}"
+        val label =
+            if (type == DetectedProjectType.HORIZON_MIXIN_MOD) "Build .hnmod · ${rootFile.name}"
+            else "Run · ${rootFile.name}"
         val scriptPath = localBinDir().child("project_runner").absolutePath
 
         val gradleArgs = if (isGradleType(type)) GradleConfig.gradleArgs(rootFile) else ""
@@ -193,9 +197,7 @@ object ProjectRunner {
 
         if (!isTerminalInstalled()) {
             if (!RunOutputState.begin(label = label)) return
-            RunOutputState.onOutput(
-                "⚠  The Linux sandbox isn't set up yet.\n\nOpen the terminal once (or run Auto Setup) to install it, then try Sync again."
-            )
+            RunOutputState.onOutput("⚠ Linux sandbox is not installed yet. Open Terminal once to set it up.")
             RunOutputState.onFinished(1)
             return
         }
@@ -224,16 +226,9 @@ object ProjectRunner {
 
     private fun syncRequiredMessage(name: String): String =
         buildString {
-            appendLine("⚠  Gradle sync required for \"$name\"")
+            appendLine("⚠ Gradle sync required for \"$name\"")
             appendLine()
-            appendLine("Android projects must be Gradle-synced once per session before you can Run,")
-            appendLine("just like Android Studio.")
-            appendLine()
-            appendLine("→ Tap the Sync button (next to Run), wait for it to finish successfully,")
-            appendLine("  then press Run again.")
-            appendLine()
-            appendLine("If Sync fails, make sure the Android SDK (and NDK) are installed from the")
-            appendLine("Dependencies dialog (the download icon in the toolbar).")
+            appendLine("Tap the Sync button in the top bar once before building.")
         }
 
     fun toSandboxPath(path: String): String =

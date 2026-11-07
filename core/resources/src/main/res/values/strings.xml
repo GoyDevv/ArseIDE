@@ -75,7 +75,7 @@
     <string name="minecraft_version">Minecraft version</string>
     <string name="jdk_version">JDK version</string>
     <string name="build_in_sandbox">Create in build-ready sandbox</string>
-    <string name="build_in_sandbox_desc">Gradle, npm and venvs need an exec-capable filesystem. Shared storage (Documents/Downloads) is mounted noexec and cannot run builds.</string>
+    <string name="build_in_sandbox_desc">Required for Gradle, Cargo, and npm builds.</string>
     <string name="dependency_notice">Required tools will be checked in the terminal after the project is created.</string>
     <string name="project_exists_err">A project with this name already exists here</string>
     <string name="invalid_project_name_err">Invalid project name</string>
@@ -84,7 +84,7 @@
     <string name="install_dependencies_msg">These tools are required for this project but aren\'t installed yet:</string>
     <string name="install_action">Install</string>
     <string name="no_changes_desc">Your working tree is clean</string>
-    <string name="shared_storage_build_warning">Heads up: builds can\'t run from shared storage. Gradle/npm need the terminal sandbox.</string>
+    <string name="shared_storage_build_warning">Builds require the terminal sandbox directory.</string>
     <string name="tools_checking">Checking required tools…</string>
     <string name="tools_installed">✓ Required tools are installed</string>
     <string name="tools_missing">Will be installed after creation:</string>
@@ -744,7 +744,7 @@
     <string name="dismiss">Dismiss</string>
     <!-- Auto Setup -->
     <string name="auto_setup_title">Set up your environment</string>
-    <string name="auto_setup_message">Arse IDE can automatically set up its Linux sandbox and install the core tools (curl, git, wget and updates) it needs to build and run code. This one-time setup keeps the terminal from breaking later.</string>
+    <string name="auto_setup_message">Install the Ubuntu sandbox and core build tools (git, curl, wget).</string>
     <string name="auto_setup_storage">Estimated storage</string>
     <string name="auto_setup_data">Estimated download</string>
     <string name="auto_setup_eta">Estimated time</string>
@@ -753,7 +753,7 @@
     <string name="auto_setup_start">Auto Setup</string>
     <string name="auto_setup_skip">Not now</string>
     <string name="auto_setup_decline_title">Skip setup?</string>
-    <string name="auto_setup_decline_message">Without this setup the IDE\'s terminal and build features may break in the future, and you will have to fix it manually. There is no support for manual fixes. You can continue using Arse IDE as a normal editor.</string>
+    <string name="auto_setup_decline_message">Terminal and background builds require the sandbox environment. You can still use the code editor and set up the sandbox later.</string>
     <string name="auto_setup_decline_confirm">Skip anyway</string>
     <string name="auto_setup_go_back">Go back</string>
     <string name="auto_setup_running_title">Setting up…</string>
@@ -767,14 +767,14 @@
     <string name="auto_setup_close">Close</string>
     <string name="approx">~%1$s</string>
     <string name="package_name_preview">Application ID</string>
-    <string name="package_name_empty_warning">Package and author are empty — the application ID above is auto-generated from the project name. Set them for a proper identifier (e.g. com.yourname.app).</string>
+    <string name="package_name_empty_warning">Auto-generated from project name.</string>
     <string name="gradle_sync">Gradle sync</string>
     <string name="ndk_version">NDK version</string>
     <string name="autoscroll">Auto-scroll</string>
     <string name="autoscroll_on">Auto-scroll: On</string>
     <string name="autoscroll_off">Auto-scroll: Off</string>
     <string name="open_dir_warning_title">Before you open a directory</string>
-    <string name="open_dir_warning_msg">On Android 11+ apps cannot freely access folders you pick here. You will likely hit many permission errors when building/running from such directories in the terminal.\n\nFor reliable builds, create or clone your project into the terminal sandbox home instead.\n\nWe do NOT accept bug reports about permission errors from manually-opened directories. Please read this carefully before continuing.</string>
+    <string name="open_dir_warning_msg">External storage folders are mounted noexec on Android 11+. To run Gradle or Cargo builds, create or clone projects in the sandbox workspace.</string>
     <string name="open_dir_warning_ok_timer">OK (%1$d)</string>
     <string name="never_show_again">Never show this again</string>
 </resources>

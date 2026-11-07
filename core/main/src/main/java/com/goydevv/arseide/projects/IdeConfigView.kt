@@ -49,7 +49,7 @@ import com.goydevv.arseide.utils.toast
 import java.io.File
 import kotlinx.coroutines.launch
 
-private const val ISSUE_URL = "https://github.com/goydevv/arseide/issues/new"
+private const val ISSUE_URL = "https://github.com/GoyDevv/ArseIDE/issues/new"
 
 private class Confirm(val title: String, val message: String, val run: () -> Unit)
 

@@ -155,7 +155,7 @@ private fun reportLogs(logText: String, issueTitle: String, copyLabel: String) {
     val context = SettingsActivity.instance!!
 
     val encodedTitle = URLEncoder.encode(issueTitle, StandardCharsets.UTF_8.toString())
-    val urlStart = "https://github.com/goydevv/arseide/issues/new?title=$encodedTitle&body="
+    val urlStart = "https://github.com/GoyDevv/ArseIDE/issues/new?title=$encodedTitle&body="
     val url = urlStart + URLEncoder.encode("```log \n${logText}\n ```", StandardCharsets.UTF_8.toString())
     if (url.length > 2048) {
         val trimmedUrl =

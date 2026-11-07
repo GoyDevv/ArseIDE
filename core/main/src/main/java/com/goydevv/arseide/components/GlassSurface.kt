@@ -3,21 +3,26 @@ package com.goydevv.arseide.components
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,11 +30,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -62,7 +65,6 @@ fun Modifier.backdropBlur(radius: Dp): Modifier =
 
 /**
  * Clean Material You (Material 3) tonal surface container.
- * Replaces the old overdone specular/gradient glass with authentic Material 3 tonal hierarchy.
  */
 @Composable
 fun GlassSurface(
@@ -170,7 +172,8 @@ data class GlassNavDestination(
 )
 
 /**
- * Authentic Material You (Material 3) NavigationBar with active indicator pills and badges.
+ * Expressive Material You (Material 3) bottom navigation bar with spring-animated pill indicators,
+ * crisp tonal hierarchy, and badge counters.
  */
 @Composable
 fun GlassBottomNavigationBar(
@@ -180,65 +183,143 @@ fun GlassBottomNavigationBar(
 ) {
     val scheme = MaterialTheme.colorScheme
 
-    NavigationBar(
-        modifier = modifier.fillMaxWidth().height(if (compact) 64.dp else 74.dp),
-        containerColor = scheme.surfaceContainer,
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = scheme.surfaceContainer,
         contentColor = scheme.onSurface,
         tonalElevation = 3.dp,
+        shadowElevation = 6.dp,
     ) {
-        items.forEach { item ->
-            NavigationBarItem(
-                selected = item.selected,
-                enabled = item.enabled,
-                onClick = item.onClick,
-                icon = {
-                    BadgedBox(
-                        badge = {
-                            if (item.badgeCount > 0) {
-                                Badge(
-                                    containerColor = scheme.primary,
-                                    contentColor = scheme.onPrimary,
-                                ) {
-                                    Text(if (item.badgeCount > 99) "99+" else item.badgeCount.toString())
+        Column(modifier = Modifier.fillMaxWidth().navigationBarsPadding()) {
+            HorizontalDivider(
+                thickness = 0.5.dp,
+                color = scheme.outlineVariant.copy(alpha = 0.42f),
+            )
+            Row(
+                modifier =
+                    Modifier.fillMaxWidth()
+                        .height(if (compact) 62.dp else 72.dp)
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                items.forEach { item ->
+                    val interactionSource = remember { MutableInteractionSource() }
+                    val isPressed by interactionSource.collectIsPressedAsState()
+                    val itemScale by
+                        animateFloatAsState(
+                            targetValue =
+                                when {
+                                    isPressed -> 0.92f
+                                    item.selected -> 1.0f
+                                    else -> 0.98f
+                                },
+                            animationSpec = spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMedium),
+                            label = "navItemScale_${item.id}",
+                        )
+                    val pillWidth by
+                        animateDpAsState(
+                            targetValue = if (item.selected) 60.dp else 36.dp,
+                            animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMedium),
+                            label = "navPillWidth_${item.id}",
+                        )
+                    val pillColor by
+                        animateColorAsState(
+                            targetValue =
+                                if (item.selected) scheme.secondaryContainer
+                                else Color.Transparent,
+                            animationSpec = tween(180),
+                            label = "navPillColor_${item.id}",
+                        )
+                    val iconTint by
+                        animateColorAsState(
+                            targetValue =
+                                if (item.selected) scheme.onSecondaryContainer
+                                else scheme.onSurfaceVariant,
+                            animationSpec = tween(180),
+                            label = "navIconTint_${item.id}",
+                        )
+                    val labelColor by
+                        animateColorAsState(
+                            targetValue =
+                                if (item.selected) scheme.onSurface
+                                else scheme.onSurfaceVariant,
+                            animationSpec = tween(180),
+                            label = "navLabelColor_${item.id}",
+                        )
+
+                    Column(
+                        modifier =
+                            Modifier.weight(1f)
+                                .graphicsLayer {
+                                    scaleX = itemScale
+                                    scaleY = itemScale
+                                }
+                                .clip(RoundedCornerShape(16.dp))
+                                .combinedClickable(
+                                    interactionSource = interactionSource,
+                                    indication = null,
+                                    enabled = item.enabled,
+                                    onClick = item.onClick,
+                                    onLongClick = item.onLongClick,
+                                )
+                                .padding(vertical = 2.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Box(
+                            modifier =
+                                Modifier.width(pillWidth)
+                                    .height(32.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(pillColor),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            BadgedBox(
+                                badge = {
+                                    if (item.badgeCount > 0) {
+                                        Badge(
+                                            containerColor = scheme.primary,
+                                            contentColor = scheme.onPrimary,
+                                        ) {
+                                            Text(if (item.badgeCount > 99) "99+" else item.badgeCount.toString())
+                                        }
+                                    }
+                                }
+                            ) {
+                                when {
+                                    item.customIcon != null -> item.customIcon.invoke()
+                                    item.iconRes != null ->
+                                        Icon(
+                                            painter = painterResource(item.iconRes),
+                                            contentDescription = item.label,
+                                            tint = iconTint,
+                                            modifier = Modifier.size(21.dp),
+                                        )
+                                    item.iconVector != null ->
+                                        Icon(
+                                            imageVector = item.iconVector,
+                                            contentDescription = item.label,
+                                            tint = iconTint,
+                                            modifier = Modifier.size(21.dp),
+                                        )
                                 }
                             }
                         }
-                    ) {
-                        when {
-                            item.customIcon != null -> item.customIcon.invoke()
-                            item.iconRes != null ->
-                                Icon(
-                                    painter = painterResource(item.iconRes),
-                                    contentDescription = item.label,
-                                    modifier = Modifier.size(22.dp),
-                                )
-                            item.iconVector != null ->
-                                Icon(
-                                    imageVector = item.iconVector,
-                                    contentDescription = item.label,
-                                    modifier = Modifier.size(22.dp),
-                                )
-                        }
+
+                        Spacer(Modifier.height(3.dp))
+
+                        Text(
+                            text = item.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (item.selected) FontWeight.Bold else FontWeight.Medium,
+                            color = labelColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
-                },
-                label = {
-                    Text(
-                        text = item.label,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                colors =
-                    NavigationBarItemDefaults.colors(
-                        selectedIconColor = scheme.onSecondaryContainer,
-                        selectedTextColor = scheme.onSurface,
-                        indicatorColor = scheme.secondaryContainer,
-                        unselectedIconColor = scheme.onSurfaceVariant,
-                        unselectedTextColor = scheme.onSurfaceVariant,
-                    ),
-            )
+                }
+            }
         }
     }
 }

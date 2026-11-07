@@ -1,9 +1,0 @@
-{
-  "itemGroup.aether_crystal.main": "Aether Crystal",
-  "block.aether_crystal.crystal_ore": "Aether Crystal Ore",
-  "block.aether_crystal.crystal_cable": "Aether Energy Cable",
-  "item.aether_crystal.crystal_shard": "Aether Crystal Shard",
-  "item.aether_crystal.crystal_blade": "Aether Crystal Blade",
-  "effect.aether_crystal.aether_aura": "Aether Aura",
-  "entity.aether_crystal.crystal_orb": "Thrown Aether Shard"
-}

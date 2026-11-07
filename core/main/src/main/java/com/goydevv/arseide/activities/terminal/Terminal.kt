@@ -15,22 +15,34 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,7 +50,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -48,11 +62,14 @@ import com.goydevv.arseide.exec.isTerminalInstalled
 import com.goydevv.arseide.file.child
 import com.goydevv.arseide.file.localBinDir
 import com.goydevv.arseide.file.sandboxDir
+import com.goydevv.arseide.resources.drawables
 import com.goydevv.arseide.resources.getString
 import com.goydevv.arseide.resources.strings
-import com.goydevv.arseide.terminal.NEXT_STAGE
+import com.goydevv.arseide.settings.Settings
+import com.goydevv.arseide.terminal.AutoSetup
 import com.goydevv.arseide.terminal.AutoSetupOverlay
 import com.goydevv.arseide.terminal.AutoSetupState
+import com.goydevv.arseide.terminal.NEXT_STAGE
 import com.goydevv.arseide.terminal.SessionService
 import com.goydevv.arseide.terminal.TerminalBackEnd
 import com.goydevv.arseide.terminal.TerminalScreen
@@ -60,13 +77,9 @@ import com.goydevv.arseide.terminal.changeSession
 import com.goydevv.arseide.terminal.getNextStage
 import com.goydevv.arseide.terminal.terminalView
 import com.goydevv.arseide.theme.XedTheme
-import com.goydevv.arseide.utils.errorDialog
 import com.goydevv.arseide.utils.getTempDir
-import com.goydevv.arseide.utils.toast
 import java.io.File
 import java.lang.ref.WeakReference
-import java.net.SocketTimeoutException
-import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
@@ -85,7 +98,6 @@ class Terminal : AppCompatActivity() {
             override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
                 val binder = service as SessionService.SessionBinder
                 sessionBinder = WeakReference(binder)
-                // sessionBinder = WeakReference(binder)
                 isBound = true
                 handleIntent(intent)
             }
@@ -120,10 +132,7 @@ class Terminal : AppCompatActivity() {
         val binder = sessionBinder?.get() ?: return
         terminalView.get() ?: return
 
-        val pwd = intent.getStringExtra("cwd")
-        if (pwd == null) {
-            return
-        }
+        val pwd = intent.getStringExtra("cwd") ?: return
         val sessionId = File(pwd).name
 
         lifecycleScope.launch(Dispatchers.Main) {
@@ -159,9 +168,8 @@ class Terminal : AppCompatActivity() {
     }
 
     private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ -> }
 
-    @OptIn(DelicateCoroutinesApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -179,11 +187,10 @@ class Terminal : AppCompatActivity() {
                             TerminalScreenHost(this@Terminal)
                         } else {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text("Error: No service connection")
+                                Text("Connecting to terminal service…")
                             }
                         }
 
-                        // Auto Setup progress overlay (runs the terminal behind a clean progress UI).
                         if (AutoSetupState.isActive) {
                             AutoSetupOverlay(activity = this@Terminal)
                         }
@@ -198,7 +205,6 @@ class Terminal : AppCompatActivity() {
             super.onDestroy()
             return
         }
-
         super.onDestroy()
     }
 
@@ -210,34 +216,101 @@ class Terminal : AppCompatActivity() {
     fun TerminalScreenHost(context: Context) {
         var progress by remember { mutableFloatStateOf(0f) }
         var needsDownload by remember { mutableStateOf(false) }
-        var currentFileName by remember { mutableStateOf("") }
         var downloadedBytes by remember { mutableLongStateOf(0L) }
         var totalBytes by remember { mutableLongStateOf(0L) }
-
-        // Helper function to format bytes to MB string
-        fun formatBytesToMB(bytes: Long): String {
-            return "%.2f".format(bytes / (1024.0 * 1024.0))
+        var setupError by remember { mutableStateOf<String?>(null) }
+        var retryKey by remember { mutableIntStateOf(0) }
+        var userChoseDownloadMode by remember {
+            mutableStateOf(isTerminalInstalled() || AutoSetupState.isActive)
+        }
+        var showIncompleteBanner by remember {
+            mutableStateOf(!Settings.auto_setup_completed && !AutoSetupState.isActive)
         }
 
-        LaunchedEffect(Unit) {
+        fun formatBytesToMB(bytes: Long): String = "%.2f".format(bytes / (1024.0 * 1024.0))
+
+        // If the user skipped Auto-Setup on first launch and the sandbox is not installed yet,
+        // offer them a clean one-tap prompt to either run Full Auto-Setup (rootfs + compilers)
+        // or download the base Ubuntu sandbox.
+        if (!userChoseDownloadMode && !isTerminalInstalled() && !AutoSetupState.isActive) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                ElevatedCard(
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(56.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(drawables.terminal),
+                                contentDescription = null,
+                                modifier = Modifier.padding(14.dp),
+                            )
+                        }
+                        Text(
+                            text = "Set Up Linux Sandbox",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                        )
+                        Text(
+                            text = "Terminal setup was skipped on first launch. Choose Full Auto-Setup to install Ubuntu 24.04 plus Git, Python, Node.js, OpenJDK, and C/C++ build tools, or install the base Ubuntu shell only.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Button(
+                            onClick = {
+                                AutoSetup.startInCurrentTerminal()
+                                userChoseDownloadMode = true
+                                retryKey++
+                            },
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                        ) {
+                            Text("Run Full Auto-Setup (Recommended)")
+                        }
+                        FilledTonalButton(
+                            onClick = {
+                                userChoseDownloadMode = true
+                                retryKey++
+                            },
+                            modifier = Modifier.fillMaxWidth().height(44.dp),
+                        ) {
+                            Text("Install Base Ubuntu Shell Only")
+                        }
+                        TextButton(onClick = { finish() }) {
+                            Text(stringResource(strings.cancel))
+                        }
+                    }
+                }
+            }
+            return
+        }
+
+        LaunchedEffect(retryKey, userChoseDownloadMode) {
+            if (!userChoseDownloadMode) return@LaunchedEffect
+            setupError = null
             try {
                 val abi = Build.SUPPORTED_ABIS
-
+                val candidateUrls = XedConstants.rootfsUrlsForAbis(abi)
                 val filesToDownload = mutableListOf<DownloadFile>()
 
                 if (isTerminalInstalled().not()) {
                     filesToDownload.add(
                         DownloadFile(
-                            url =
-                                if (abi.contains("x86_64")) {
-                                    XedConstants.ROOTFS_X64
-                                } else if (abi.contains("arm64-v8a")) {
-                                    XedConstants.ROOTFS_ARM64
-                                } else if (abi.contains("armeabi-v7a")) {
-                                    XedConstants.ROOTFS_ARM
-                                } else {
-                                    throw RuntimeException("Unsupported CPU")
-                                },
+                            urls = candidateUrls,
                             outputFile = getTempDir().child("sandbox.tar.gz"),
                         )
                     )
@@ -246,12 +319,10 @@ class Terminal : AppCompatActivity() {
                 needsDownload = filesToDownload.any { file -> file.outputFile.exists().not() }
 
                 setupEnvironment(
-                    context = context,
                     filesToDownload = filesToDownload,
                     onProgress = { fileName, downloaded, total ->
                         downloadedBytes = downloaded
                         totalBytes = total
-                        currentFileName = fileName
 
                         if (total > 0) {
                             val downloadedMB = formatBytesToMB(downloaded)
@@ -260,110 +331,176 @@ class Terminal : AppCompatActivity() {
                                 "${strings.downloading.getString()} ${fileName.removeSuffix(".so").removePrefix("lib")} ($downloadedMB/$totalMB MB)"
                         }
 
-                        // Mirror sandbox download progress into the Auto Setup full-screen UI.
                         if (AutoSetupState.isActive) AutoSetupState.onDownload(downloaded, total)
                     },
                     onComplete = {
                         installNextStage = it
-                        // Download finished → sandbox is now extracted/prepared by the session.
                         if (AutoSetupState.isActive) AutoSetupState.onExtracting()
                     },
                     onError = { error, file ->
-                        when (error) {
-                            is UnknownHostException -> {
-                                toast(strings.network_err.getString())
+                        error.printStackTrace()
+                        GlobalScope.launch(Dispatchers.IO) {
+                            if (file?.absolutePath?.contains(localBinDir().absolutePath) == true) {
+                                localBinDir().deleteRecursively()
                             }
-
-                            is SocketTimeoutException -> {
-                                errorDialog(strings.timeout)
-                            }
-
-                            else -> {
-                                error.printStackTrace()
-                                GlobalScope.launch(Dispatchers.IO) {
-                                    if (file?.absolutePath?.contains(localBinDir().absolutePath) == true) {
-                                        localBinDir().deleteRecursively()
-                                    }
-
-                                    if (file?.name == "sandbox.tar.gz") {
-                                        sandboxDir().deleteRecursively()
-                                        File(getTempDir(), "sandbox.tar.gz").delete()
-                                    }
-                                }
-                                errorDialog(msg = "Setup failed: ${error.message}")
+                            if (file?.name == "sandbox.tar.gz") {
+                                sandboxDir().deleteRecursively()
+                                File(getTempDir(), "sandbox.tar.gz").delete()
                             }
                         }
-                        finish()
+                        setupError = error.message ?: "Failed to download Ubuntu rootfs."
                     },
                 )
             } catch (e: Exception) {
-                if (e is UnknownHostException) {
-                    toast(strings.network_err.getString())
-                } else if (e is SocketTimeoutException) {
-                    errorDialog(strings.timeout)
-                } else {
-                    e.printStackTrace()
-                    toast("Setup failed: ${e.message}")
-                }
-                finish()
+                e.printStackTrace()
+                setupError = e.message ?: "Unexpected terminal setup error."
             }
         }
 
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            val context = LocalContext.current
-            val activity = context as? Activity
+            val activity = LocalContext.current as? Activity
 
             DisposableEffect(Unit) {
                 activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
                 onDispose { activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
             }
 
-            if (installNextStage == null) {
-                if (needsDownload) {
-                    Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            when {
+                setupError != null -> {
+                    ElevatedCard(
+                        shape = RoundedCornerShape(24.dp),
+                        modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    ) {
                         Column(
-                            modifier = Modifier.align(Alignment.Center),
+                            modifier = Modifier.fillMaxWidth().padding(24.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Text(text = progressText, style = MaterialTheme.typography.bodyLarge)
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(0.8f))
-
-                            if (totalBytes > 0) {
-                                val percent = (downloadedBytes.toFloat() / totalBytes * 100).toInt()
-                                progress = downloadedBytes.toFloat() / totalBytes
-
-                                Text(
-                                    text = "$percent%",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.padding(top = 8.dp),
-                                )
+                            Text(
+                                text = "Sandbox Download Failed",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            Text(
+                                text = setupError ?: "",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                OutlinedButton(
+                                    onClick = { finish() },
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text("Close")
+                                }
+                                Button(
+                                    onClick = {
+                                        setupError = null
+                                        retryKey++
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text("Retry Setup")
+                                }
                             }
                         }
-
-                        Text(
-                            text = stringResource(strings.warn_dont_leave_setup),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
-                            textAlign = TextAlign.Center,
-                        )
                     }
                 }
-            } else {
-                TerminalScreen(terminalActivity = this@Terminal)
+
+                installNextStage == null -> {
+                    if (needsDownload) {
+                        Box(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+                            Column(
+                                modifier = Modifier.align(Alignment.Center),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text(
+                                    text = progressText,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                LinearProgressIndicator(
+                                    progress = { progress },
+                                    modifier = Modifier.fillMaxWidth(0.85f),
+                                )
+
+                                if (totalBytes > 0) {
+                                    val percent = (downloadedBytes.toFloat() / totalBytes * 100).toInt()
+                                    progress = downloadedBytes.toFloat() / totalBytes
+
+                                    Text(
+                                        text = "$percent%",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.padding(top = 8.dp),
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = stringResource(strings.warn_dont_leave_setup),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                }
+
+                else -> {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        if (showIncompleteBanner && !Settings.auto_setup_completed && !AutoSetupState.isActive) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        text = "Toolchain packages not installed yet",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        TextButton(
+                                            onClick = {
+                                                showIncompleteBanner = false
+                                                AutoSetup.launch(this@Terminal)
+                                            }
+                                        ) {
+                                            Text("Auto-Setup", fontWeight = FontWeight.Bold)
+                                        }
+                                        TextButton(onClick = { showIncompleteBanner = false }) {
+                                            Text("Dismiss")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            TerminalScreen(terminalActivity = this@Terminal)
+                        }
+                    }
+                }
             }
         }
     }
 
-    data class DownloadFile(val url: String, val outputFile: File)
+    data class DownloadFile(val urls: List<String>, val outputFile: File)
 
-    @OptIn(DelicateCoroutinesApi::class)
     private suspend fun setupEnvironment(
-        context: Context,
         filesToDownload: List<DownloadFile>,
         onProgress: (fileName: String, downloadedBytes: Long, totalBytes: Long) -> Unit,
         onComplete: (NEXT_STAGE) -> Unit,
@@ -373,25 +510,20 @@ class Terminal : AppCompatActivity() {
 
         withContext(Dispatchers.IO) {
             try {
-                var completedFiles = 0
-
                 filesToDownload.forEach { file ->
                     val outputFile = file.outputFile
                     currentFile = outputFile
-
                     outputFile.parentFile?.mkdirs()
 
-                    if (!outputFile.exists()) {
-                        downloadFile(
-                            url = file.url,
+                    if (!outputFile.exists() || outputFile.length() == 0L) {
+                        downloadFileWithFallback(
+                            urls = file.urls,
                             outputFile = outputFile,
                             onProgress = { downloaded, total -> onProgress(file.outputFile.name, downloaded, total) },
                         )
                     } else {
-                        // Report existing file as already downloaded
                         onProgress(file.outputFile.name, outputFile.length(), outputFile.length())
                     }
-                    completedFiles++
 
                     runCatching { outputFile.setExecutable(true) }.onFailure { it.printStackTrace() }
                 }
@@ -400,52 +532,64 @@ class Terminal : AppCompatActivity() {
                 onComplete(stage)
             } catch (e: Exception) {
                 e.printStackTrace()
-                withContext(Dispatchers.Main) { onError(e, currentFile) }
                 if (currentFile?.exists() == true) {
                     currentFile.delete()
                 }
+                withContext(Dispatchers.Main) { onError(e, currentFile) }
             }
         }
     }
 
-    private suspend fun downloadFile(
-        url: String,
+    private suspend fun downloadFileWithFallback(
+        urls: List<String>,
         outputFile: File,
         onProgress: (downloadedBytes: Long, totalBytes: Long) -> Unit,
     ) {
         withContext(Dispatchers.IO) {
             val client =
                 OkHttpClient.Builder()
-                    .connectTimeout(1, TimeUnit.MINUTES)
+                    .connectTimeout(45, TimeUnit.SECONDS)
                     .readTimeout(1, TimeUnit.MINUTES)
                     .writeTimeout(1, TimeUnit.MINUTES)
                     .callTimeout(10, TimeUnit.MINUTES)
+                    .followRedirects(true)
+                    .followSslRedirects(true)
                     .build()
-            val request = Request.Builder().url(url).build()
 
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    throw Exception("Failed to download file: ${response.code}")
-                }
+            var lastError: Exception? = null
+            for (url in urls) {
+                try {
+                    val request = Request.Builder().url(url).build()
+                    client.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            throw Exception("HTTP ${response.code} from $url")
+                        }
 
-                val body = response.body
-                val totalBytes = body.contentLength()
+                        val body = response.body
+                        val totalBytes = body.contentLength()
+                        var downloadedBytes = 0L
 
-                var downloadedBytes = 0L
-
-                outputFile.outputStream().use { output ->
-                    body.byteStream().use { input ->
-                        val buffer = ByteArray(8 * 1024)
-                        var bytesRead: Int
-
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            output.write(buffer, 0, bytesRead)
-                            downloadedBytes += bytesRead
-                            withContext(Dispatchers.Main) { onProgress(downloadedBytes, totalBytes) }
+                        outputFile.outputStream().use { output ->
+                            body.byteStream().use { input ->
+                                val buffer = ByteArray(16 * 1024)
+                                var bytesRead: Int
+                                while (input.read(buffer).also { bytesRead = it } != -1) {
+                                    output.write(buffer, 0, bytesRead)
+                                    downloadedBytes += bytesRead
+                                    withContext(Dispatchers.Main) { onProgress(downloadedBytes, totalBytes) }
+                                }
+                            }
                         }
                     }
+                    if (outputFile.exists() && outputFile.length() > 1024L) {
+                        return@withContext
+                    }
+                } catch (e: Exception) {
+                    lastError = e
+                    if (outputFile.exists()) outputFile.delete()
                 }
             }
+            throw lastError ?: Exception("Failed to download sandbox rootfs from all mirrors.")
         }
     }
 }

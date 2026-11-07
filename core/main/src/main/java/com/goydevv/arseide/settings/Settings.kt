@@ -7,8 +7,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
+import com.goydevv.arseide.BuildConfig
 import com.goydevv.arseide.commands.ToolbarConfiguration
 import com.goydevv.arseide.filetree.SortMode
+import com.goydevv.arseide.horizon.HorizonModValidator
 import com.goydevv.arseide.settings.editor.DEFAULT_EXCLUDED_FILES_DRAWER
 import com.goydevv.arseide.settings.editor.DEFAULT_EXCLUDED_FILES_SEARCH
 import com.goydevv.arseide.settings.editor.DEFAULT_EXTRA_KEYS_COMMANDS
@@ -16,11 +18,7 @@ import com.goydevv.arseide.settings.editor.DEFAULT_EXTRA_KEYS_SYMBOLS
 import com.goydevv.arseide.settings.terminal.DEFAULT_TERMINAL_EXTRA_KEYS
 import com.goydevv.arseide.theme.blueberry
 import com.goydevv.arseide.utils.application
-import com.goydevv.arseide.utils.hasHardwareKeyboard
-import com.goydevv.arseide.BuildConfig
 import com.termux.terminal.TerminalEmulator
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.lang.ref.WeakReference
 import java.nio.charset.Charset
 import kotlin.properties.ReadWriteProperty
@@ -28,6 +26,8 @@ import kotlin.reflect.KClass
 import kotlin.reflect.KProperty
 import kotlin.reflect.full.declaredMemberProperties
 import kotlin.reflect.jvm.isAccessible
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 // NOTE: USE snake_case FOR KEYS!
 object Settings {
@@ -36,8 +36,6 @@ object Settings {
 
     var read_only_default by CachedPreference("read_only_default", false)
     var shown_disclaimer by CachedPreference("shown_disclaimer", false)
-    // First-launch Auto Setup: whether the one-time environment setup completed successfully, and
-    // whether the user dismissed/declined the prompt (so we don't keep nagging on every launch).
     var auto_setup_completed by CachedPreference("auto_setup_completed", false)
     var auto_setup_prompt_dismissed by CachedPreference("auto_setup_prompt_dismissed", false)
     var warn_extensions by CachedPreference("warn_extensions", true)
@@ -60,14 +58,13 @@ object Settings {
     var is_editor_font_asset by CachedPreference("is_font_asset", false)
     var is_app_font_asset by CachedPreference("is_app_font_asset", false)
     var is_terminal_font_asset by CachedPreference("is_terminal_font_asset", false)
-    var smooth_tabs by CachedPreference("smooth_tab", false)
+    var smooth_tabs by CachedPreference("smooth_tab", true)
     var actual_tabs by CachedPreference("actual_tab", false)
     var hide_soft_keyboard_if_hardware by CachedPreference("always_show_soft_keyboard", true)
     var ignore_storage_permission by CachedPreference("ignore_storage_permission", false)
     var github by CachedPreference("github", true)
     var has_shown_private_data_dir_warning by CachedPreference("has_shown_private_data_dir_warning", false)
     var has_shown_terminal_dir_warning by CachedPreference("has_shown_terminal_dir_warning", false)
-    // When true, skip the Android 11+ permission caution shown before opening a directory.
     var open_dir_warning_dismissed by CachedPreference("open_dir_warning_dismissed", false)
     var anr_watchdog by CachedPreference("anr", BuildConfig.DEBUG)
     var strict_mode by CachedPreference("strict_mode", BuildConfig.DEBUG)
@@ -87,14 +84,9 @@ object Settings {
     var compact_folders_drawer by CachedPreference("compact_folders_drawer", true)
     var show_hidden_files_search by CachedPreference("show_hidden_files_search", false)
     var show_tab_icons by CachedPreference("show_tab_icons", true)
-    // When false (default), open editor tabs are scoped to the currently selected project/directory
-    // in the drawer; when true, every open file is shown together regardless of its project.
     var show_all_files by CachedPreference("show_all_files", false)
-    // One-time flag: ensures the "Show all files" toggle is injected into existing users' toolbars.
     var migrated_show_all_files_toolbar by CachedPreference("migrated_show_all_files_toolbar", false)
-    // One-time flag: injects the Android "Gradle sync" button next to Run for existing users.
     var migrated_sync_toolbar by CachedPreference("migrated_sync_toolbar", false)
-    // One-time flag: injects the "Extra keys" toggle into existing users' editor toolbars.
     var migrated_extra_keys_toolbar by CachedPreference("migrated_extra_keys_toolbar", false)
     var split_extra_keys by CachedPreference("split_extra_keys", false)
     var extra_keys_bg by CachedPreference("extra_keys_bg", false)
@@ -118,6 +110,13 @@ object Settings {
     var auto_closing_bracket by CachedPreference("auto_closing_bracket", true)
     var confirm_exit by CachedPreference("confirm_exit", true)
     var terminal_clipboard_keybindings by CachedPreference("terminal_clipboard_keybindings", true)
+
+    // Compiler & Horizon .hnmod settings
+    var gradle_build_cache by CachedPreference("gradle_build_cache", true)
+    var cargo_build_cache by CachedPreference("cargo_build_cache", true)
+    var horizon_revision by CachedPreference("horizon_revision", HorizonModValidator.DEFAULT_HORIZON_REV)
+    var mixins_revision by CachedPreference("mixins_revision", HorizonModValidator.DEFAULT_MIXINS_REV)
+    var horizon_hooks_api by CachedPreference("horizon_hooks_api", 35)
 
     // Int settings
     var tab_size by CachedPreference("tab_size", 4)
@@ -211,8 +210,6 @@ object Preference {
             .toMap()
     }
 
-    // Registry mapping preference keys to their CachedPreference delegates so that
-    // external Preference.setXxx() calls can propagate updates into the MutableState.
     private val delegateRegistry = mutableMapOf<String, CachedPreference<*>>()
 
     internal fun registerDelegate(key: String, delegate: CachedPreference<*>) {
@@ -224,7 +221,6 @@ object Preference {
         (delegateRegistry[key] as? CachedPreference<T>)?.applyStateValue(value)
     }
 
-    // Weak reference caches to allow garbage collection of unused settings
     private val stringCache = mutableMapOf<String, WeakReference<String?>>()
     private val boolCache = mutableMapOf<String, WeakReference<Boolean>>()
     private val intCache = mutableMapOf<String, WeakReference<Int>>()
@@ -246,18 +242,13 @@ object Preference {
         }
     }
 
-    // Preload all settings at startup
     suspend fun preloadAllSettings() =
         withContext(Dispatchers.IO) {
-            // This will force all settings to be loaded into cache
-            // The weak references will allow GC if settings aren't used
             Settings::class.members.forEach { member ->
                 if (member is KProperty<*>) {
                     try {
                         member.getter.call(Settings)
-                    } catch (e: Exception) {
-                        // Ignore - some properties might not be accessible
-                    }
+                    } catch (_: Exception) {}
                 }
             }
         }

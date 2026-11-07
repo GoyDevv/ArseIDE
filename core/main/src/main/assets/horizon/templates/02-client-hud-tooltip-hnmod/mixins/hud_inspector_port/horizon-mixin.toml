@@ -1,0 +1,53 @@
+[mod]
+id = "hud_inspector_port"
+version = "0.1.0"
+priority = 100
+
+[compatibility]
+horizon_revision = "6f8c7a0e5d531d3834c4d0be4659a1db8e7e5c2a"
+
+[[module]]
+id = "runtime"
+file = "crates/horizon-client/src/game.rs"
+name = "hud_inspector_runtime"
+source = "runtime.rs"
+
+[[injection]]
+id = "list"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_mods"
+helper = "list.rs"
+bindings = [
+  { name = "mods", ty = "&mut Vec<crate::game::native_hooks::NativeMod>", value = "&mut *mods" },
+]
+
+[[injection]]
+id = "hud"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_hud"
+helper = "hud.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "shapes", ty = "&mut Vec<crate::game::native_hooks::NativeShape>", value = "&mut *shapes" },
+]
+
+[[injection]]
+id = "commands"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_commands"
+helper = "commands.rs"
+bindings = [
+  { name = "commands", ty = "&mut Vec<String>", value = "&mut *commands" },
+]
+
+[[injection]]
+id = "command"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_command"
+helper = "command.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "name", ty = "&str", value = "name" },
+  { name = "args", ty = "&str", value = "args" },
+  { name = "ran", ty = "&mut bool", value = "&mut *ran" },
+]

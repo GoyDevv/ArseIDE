@@ -2,7 +2,6 @@ package com.goydevv.arseide.theme
 
 import android.os.Build
 import androidx.annotation.ChecksSdkIntAtLeast
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -16,13 +15,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
-import com.google.android.material.color.MaterialColors
+import androidx.core.graphics.ColorUtils
+import com.google.gson.JsonArray
+import com.goydevv.arseide.color.toHex
 import com.goydevv.arseide.settings.Settings
 import com.goydevv.arseide.settings.editor.rememberAppTypography
 import com.goydevv.arseide.settings.theme.themes
 import com.goydevv.arseide.utils.isDarkTheme
 import com.goydevv.arseide.utils.toast
+import java.util.Properties
 
 val currentTheme = mutableStateOf<ThemeHolder?>(null)
 val dynamicTheme = mutableStateOf(Settings.monet)
@@ -30,9 +34,6 @@ val amoled = mutableStateOf(Settings.amoled)
 
 val LocalThemeHolder = staticCompositionLocalOf<ThemeHolder> { error("No ThemeHolder state provided") }
 
-/**
- * Semantic tokens for ArseIDE's frosted and liquid glass surfaces.
- */
 @Immutable
 data class GlassColors(
     val surfaceTop: Color,
@@ -52,7 +53,7 @@ val LocalGlassColors =
             surfaceBottom = Color(0xEB151924),
             borderTop = Color(0x40FFFFFF),
             borderMid = Color(0x1FFFFFFF),
-            borderBottom = Color(0x0DFFFFFF),
+            borderBottom = Color.White.copy(alpha = 0.05f),
             specularHighlight = Color(0xFFFFFFFF),
             activePillContainer = Color(0xAD2B4678),
             activePillContent = Color(0xFFD8E2FF),
@@ -65,39 +66,131 @@ fun rememberGlassColors(scheme: ColorScheme, darkTheme: Boolean, highContrastDar
         when {
             darkTheme && highContrastDarkTheme ->
                 GlassColors(
-                    surfaceTop = Color(0xD610131C),
-                    surfaceBottom = Color(0xEC06080C),
+                    surfaceTop = scheme.surfaceContainerLow,
+                    surfaceBottom = Color.Black,
                     borderTop = scheme.primary.copy(alpha = 0.34f),
-                    borderMid = Color.White.copy(alpha = 0.14f),
+                    borderMid = scheme.outlineVariant.copy(alpha = 0.35f),
                     borderBottom = Color.White.copy(alpha = 0.05f),
                     specularHighlight = scheme.primary,
-                    activePillContainer = scheme.primaryContainer.copy(alpha = 0.72f),
-                    activePillContent = scheme.onPrimaryContainer,
+                    activePillContainer = scheme.secondaryContainer,
+                    activePillContent = scheme.onSecondaryContainer,
                 )
             darkTheme ->
                 GlassColors(
-                    surfaceTop = scheme.surfaceContainerHigh.copy(alpha = 0.84f),
-                    surfaceBottom = scheme.surfaceContainer.copy(alpha = 0.92f),
-                    borderTop = Color.White.copy(alpha = 0.22f),
-                    borderMid = scheme.primary.copy(alpha = 0.14f),
-                    borderBottom = Color.White.copy(alpha = 0.06f),
-                    specularHighlight = Color.White,
-                    activePillContainer = scheme.primaryContainer.copy(alpha = 0.75f),
-                    activePillContent = scheme.onPrimaryContainer,
+                    surfaceTop = scheme.surfaceContainerHigh,
+                    surfaceBottom = scheme.surfaceContainer,
+                    borderTop = scheme.outlineVariant.copy(alpha = 0.45f),
+                    borderMid = scheme.primary.copy(alpha = 0.18f),
+                    borderBottom = scheme.outlineVariant.copy(alpha = 0.2f),
+                    specularHighlight = scheme.primary,
+                    activePillContainer = scheme.secondaryContainer,
+                    activePillContent = scheme.onSecondaryContainer,
                 )
             else ->
                 GlassColors(
-                    surfaceTop = scheme.surfaceContainerLowest.copy(alpha = 0.86f),
-                    surfaceBottom = scheme.surfaceContainerHigh.copy(alpha = 0.92f),
-                    borderTop = Color.White.copy(alpha = 0.75f),
-                    borderMid = scheme.primary.copy(alpha = 0.20f),
-                    borderBottom = scheme.outlineVariant.copy(alpha = 0.35f),
-                    specularHighlight = Color.White,
-                    activePillContainer = scheme.primaryContainer.copy(alpha = 0.82f),
-                    activePillContent = scheme.onPrimaryContainer,
+                    surfaceTop = scheme.surfaceContainerLowest,
+                    surfaceBottom = scheme.surfaceContainer,
+                    borderTop = scheme.outlineVariant.copy(alpha = 0.45f),
+                    borderMid = scheme.primary.copy(alpha = 0.18f),
+                    borderBottom = scheme.outlineVariant.copy(alpha = 0.25f),
+                    specularHighlight = scheme.primary,
+                    activePillContainer = scheme.secondaryContainer,
+                    activePillContent = scheme.onSecondaryContainer,
                 )
         }
     }
+
+/**
+ * Ensures any ColorScheme (especially dynamic Material You schemes on OEM ROMs or AMOLED overrides)
+ * has a well-ordered, distinct tonal hierarchy across surface and container tokens so cards,
+ * bottom sheets, editor gutters, and navigation bars never blend together or lose contrast.
+ */
+private fun normalizeColorScheme(raw: ColorScheme, darkTheme: Boolean, highContrastDarkTheme: Boolean): ColorScheme {
+    val primaryArgb = raw.primary.toArgb()
+    fun tone(baseHex: Int, primaryRatio: Float): Color =
+        Color(ColorUtils.blendARGB(baseHex, primaryArgb, primaryRatio))
+
+    return when {
+        darkTheme && highContrastDarkTheme ->
+            raw.copy(
+                background = Color.Black,
+                surface = Color.Black,
+                surfaceDim = Color.Black,
+                surfaceBright = tone(0xFF242834.toInt(), 0.10f),
+                surfaceContainerLowest = Color.Black,
+                surfaceContainerLow = tone(0xFF0A0C10.toInt(), 0.06f),
+                surfaceContainer = tone(0xFF11141C.toInt(), 0.08f),
+                surfaceContainerHigh = tone(0xFF191D28.toInt(), 0.10f),
+                surfaceContainerHighest = tone(0xFF222736.toInt(), 0.12f),
+            )
+        darkTheme -> {
+            // Guarantee clean separation if OEM dynamicDarkColorScheme collapses surfaceContainer tokens
+            val bgLum = raw.background.luminance()
+            val contLum = raw.surfaceContainer.luminance()
+            if (kotlin.math.abs(contLum - bgLum) < 0.008f) {
+                raw.copy(
+                    surfaceDim = tone(0xFF0B0E14.toInt(), 0.06f),
+                    background = tone(0xFF0E1118.toInt(), 0.07f),
+                    surface = tone(0xFF0E1118.toInt(), 0.07f),
+                    surfaceContainerLowest = tone(0xFF090B10.toInt(), 0.05f),
+                    surfaceContainerLow = tone(0xFF141822.toInt(), 0.08f),
+                    surfaceContainer = tone(0xFF191E2A.toInt(), 0.10f),
+                    surfaceContainerHigh = tone(0xFF212736.toInt(), 0.12f),
+                    surfaceContainerHighest = tone(0xFF2A3144.toInt(), 0.14f),
+                )
+            } else {
+                raw
+            }
+        }
+        else -> {
+            val bgLum = raw.background.luminance()
+            val contLum = raw.surfaceContainer.luminance()
+            if (kotlin.math.abs(contLum - bgLum) < 0.008f) {
+                raw.copy(
+                    surfaceContainerLowest = Color.White,
+                    background = tone(0xFFF8F9FE.toInt(), 0.03f),
+                    surface = tone(0xFFF8F9FE.toInt(), 0.03f),
+                    surfaceContainerLow = tone(0xFFF2F4FB.toInt(), 0.05f),
+                    surfaceContainer = tone(0xFFECEEF7.toInt(), 0.07f),
+                    surfaceContainerHigh = tone(0xFFE5E8F2.toInt(), 0.09f),
+                    surfaceContainerHighest = tone(0xFFDFE2EE.toInt(), 0.11f),
+                )
+            } else {
+                raw
+            }
+        }
+    }
+}
+
+private fun buildDynamicThemeHolder(light: ColorScheme, dark: ColorScheme): ThemeHolder {
+    val lightProps =
+        Properties().apply {
+            putAll(blueberry.lightTerminalColors)
+            this["foreground"] = light.onSurface.toHex()
+            this["background"] = light.surface.toHex()
+            this["cursor"] = light.primary.toHex()
+        }
+    val darkProps =
+        Properties().apply {
+            putAll(blueberry.darkTerminalColors)
+            this["foreground"] = dark.onSurface.toHex()
+            this["background"] = dark.surface.toHex()
+            this["cursor"] = dark.primary.toHex()
+        }
+    return ThemeHolder(
+        id = "material-you-dynamic",
+        name = "Material You (Dynamic)",
+        inheritBase = true,
+        lightScheme = light,
+        darkScheme = dark,
+        lightTokenColors = JsonArray(),
+        darkTokenColors = JsonArray(),
+        lightEditorColors = emptyList(),
+        darkEditorColors = emptyList(),
+        lightTerminalColors = lightProps,
+        darkTerminalColors = darkProps,
+    )
+}
 
 @Composable
 fun XedTheme(
@@ -106,75 +199,39 @@ fun XedTheme(
     dynamicColor: Boolean = dynamicTheme.value,
     content: @Composable () -> Unit,
 ) {
-    var themeHolder = blueberry
-    val colorScheme =
+    val context = LocalContext.current
+    val resolvedPair: Pair<ThemeHolder, ColorScheme> =
         if (dynamicColor && supportsDynamicTheming()) {
-            val context = LocalContext.current
-            val baseColorScheme =
-                when {
-                    darkTheme && highContrastDarkTheme ->
-                        dynamicDarkColorScheme(context)
-                            .copy(
-                                background = Color.Black,
-                                surface = Color.Black,
-                                surfaceDim = Color.Black,
-                                surfaceContainerLowest = Color.Black,
-                                surfaceContainerLow = Color(0xFF0B0D13),
-                                surfaceContainer = Color(0xFF10131B),
-                            )
-
-                    darkTheme -> dynamicDarkColorScheme(context)
-                    else -> dynamicLightColorScheme(context)
-                }
-
-            themeHolder = blueberry
-            baseColorScheme
+            val rawLight = normalizeColorScheme(dynamicLightColorScheme(context), darkTheme = false, highContrastDarkTheme = false)
+            val rawDark = normalizeColorScheme(dynamicDarkColorScheme(context), darkTheme = true, highContrastDarkTheme = highContrastDarkTheme)
+            val holder = remember(rawLight, rawDark) { buildDynamicThemeHolder(rawLight, rawDark) }
+            holder to (if (darkTheme) rawDark else rawLight)
         } else {
-            if (currentTheme.value == null) {
-                themeHolder = themes.find { it.id == Settings.theme } ?: themeHolder
-                currentTheme.value = themeHolder
-            } else {
-                themeHolder = currentTheme.value ?: themeHolder
-            }
+            val selectedHolder =
+                currentTheme.value
+                    ?: themes.find { it.id == Settings.theme }?.also { currentTheme.value = it }
+                    ?: blueberry.also { currentTheme.value = it }
 
-            val theme =
-                if (darkTheme) {
-                    if (highContrastDarkTheme) {
-                        themeHolder.darkScheme.copy(
-                            background = Color.Black,
-                            surface = Color.Black,
-                            surfaceDim = Color.Black,
-                            surfaceContainerLowest = Color.Black,
-                            surfaceContainerLow = Color(0xFF0B0D13),
-                            surfaceContainer = Color(0xFF10131B),
-                        )
-                    } else {
-                        themeHolder.darkScheme
-                    }
-                } else {
-                    themeHolder.lightScheme
-                }
-
-            if (currentTheme.value == null) {
-                LaunchedEffect(theme) { toast("No theme selected") }
-                if (darkTheme) {
-                    blueberry.darkScheme
-                } else {
-                    blueberry.lightScheme
-                }
-            } else {
-                theme
-            }
+            val baseScheme = if (darkTheme) selectedHolder.darkScheme else selectedHolder.lightScheme
+            val normalizedScheme = normalizeColorScheme(baseScheme, darkTheme = darkTheme, highContrastDarkTheme = highContrastDarkTheme)
+            selectedHolder to normalizedScheme
         }
 
+    val themeHolder = resolvedPair.first
+    val colorScheme = resolvedPair.second
     val glassColors = rememberGlassColors(colorScheme, darkTheme, highContrastDarkTheme)
 
     CompositionLocalProvider(
         LocalThemeHolder provides themeHolder,
         LocalGlassColors provides glassColors,
     ) {
-        MaterialTheme(colorScheme = colorScheme, typography = rememberAppTypography(LocalContext.current)) {
-            Surface(color = MaterialTheme.colorScheme.background) { content() }
+        MaterialTheme(colorScheme = colorScheme, typography = rememberAppTypography(context)) {
+            Surface(
+                color = MaterialTheme.colorScheme.background,
+                contentColor = MaterialTheme.colorScheme.onBackground,
+            ) {
+                content()
+            }
         }
     }
 }
@@ -184,33 +241,30 @@ fun supportsDynamicTheming() = Build.VERSION_CODES.S <= Build.VERSION.SDK_INT
 
 @Composable
 fun harmonize(color: Long): Int {
-    val context = LocalContext.current
-    return MaterialColors.harmonizeWithPrimary(context, color.toInt())
+    val primaryArgb = MaterialTheme.colorScheme.primary.toArgb()
+    return ColorUtils.blendARGB(color.toInt(), primaryArgb, 0.18f)
 }
 
-// Custom warning colors
 val ColorScheme.warningSurface: Color
-    @Composable get() = if (isSystemInDarkTheme()) Color(harmonize(0xFF633F00)) else Color(harmonize(0xFFFFDDB4))
+    @Composable get() = if (isDarkTheme(LocalContext.current)) Color(harmonize(0xFF633F00)) else Color(harmonize(0xFFFFDDB4))
 
 val ColorScheme.onWarningSurface: Color
-    @Composable get() = if (isSystemInDarkTheme()) Color(harmonize(0xFFFFDDB4)) else Color(harmonize(0xFF633F00))
+    @Composable get() = if (isDarkTheme(LocalContext.current)) Color(harmonize(0xFFFFDDB4)) else Color(harmonize(0xFF633F00))
 
-// Status colors
 val ColorScheme.greenStatus: Color
-    @Composable get() = if (isSystemInDarkTheme()) Color(harmonize(0xFFA6DA95)) else Color(harmonize(0xFF44842E))
+    @Composable get() = if (isDarkTheme(LocalContext.current)) Color(harmonize(0xFFA6DA95)) else Color(harmonize(0xFF2E7D32))
 
 val ColorScheme.yellowStatus: Color
-    @Composable get() = if (isSystemInDarkTheme()) Color(harmonize(0xFFFFE082)) else Color(harmonize(0xFFE6AC00))
+    @Composable get() = if (isDarkTheme(LocalContext.current)) Color(harmonize(0xFFFFE082)) else Color(harmonize(0xFFE6AC00))
 
-// Git change colors
 val ColorScheme.gitAdded: Color
-    @Composable get() = if (isSystemInDarkTheme()) Color(harmonize(0xFF81C784)) else Color(harmonize(0xFF2E7D32))
+    @Composable get() = if (isDarkTheme(LocalContext.current)) Color(harmonize(0xFF81C784)) else Color(harmonize(0xFF2E7D32))
 
 val ColorScheme.gitModified: Color
-    @Composable get() = if (isSystemInDarkTheme()) Color(harmonize(0xFF64B5F6)) else Color(harmonize(0xFF1565C0))
+    @Composable get() = if (isDarkTheme(LocalContext.current)) Color(harmonize(0xFF64B5F6)) else Color(harmonize(0xFF1565C0))
 
 val ColorScheme.gitDeleted: Color
     get() = this.onSurface.copy(alpha = 0.6f)
 
 val ColorScheme.gitConflicted: Color
-    @Composable get() = if (isSystemInDarkTheme()) Color(harmonize(0xFFE57373)) else Color(harmonize(0xFFC62828))
+    @Composable get() = if (isDarkTheme(LocalContext.current)) Color(harmonize(0xFFE57373)) else Color(harmonize(0xFFC62828))
