@@ -1,0 +1,198 @@
+package com.goydevv.arseide.activities.main
+
+import android.content.Intent
+import android.os.Build
+import android.os.Bundle
+import android.view.KeyEvent
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.goydevv.arseide.commands.KeybindingsManager
+import com.goydevv.arseide.drawer.DrawerPersistence
+import com.goydevv.arseide.drawer.DrawerViewModel
+import com.goydevv.arseide.file.FileManager
+import com.goydevv.arseide.file.FilePermission
+import com.goydevv.arseide.file.toFileObject
+import com.goydevv.arseide.lsp.LspRegistry
+import com.goydevv.arseide.resources.getFilledString
+import com.goydevv.arseide.resources.strings
+import com.goydevv.arseide.settings.Settings
+import com.goydevv.arseide.settings.support.handleSupport
+import com.goydevv.arseide.tabs.editor.EditorTab
+import com.goydevv.arseide.tabs.editor.applyHighlightingAndConnectLSP
+import com.goydevv.arseide.utils.errorDialog
+import com.goydevv.arseide.utils.toast
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.lang.ref.WeakReference
+import kotlin.time.Duration.Companion.milliseconds
+
+class MainActivity : AppCompatActivity() {
+    val viewModel: MainViewModel by viewModels()
+    val drawerViewModel: DrawerViewModel by viewModels()
+    val fileManager = FileManager(this)
+
+    // suspend (isForeground) -> Unit
+    val foregroundListener = hashMapOf<Any, suspend (Boolean) -> Unit>()
+
+    companion object {
+        var isPaused = false
+        private var activityRef = WeakReference<MainActivity?>(null)
+        var instance: MainActivity?
+            get() = activityRef.get()
+            private set(value) {
+                activityRef = WeakReference(value)
+            }
+    }
+
+    @OptIn(DelicateCoroutinesApi::class)
+    override fun onPause() {
+        isPaused = true
+        GlobalScope.launch(Dispatchers.IO) {
+            SessionManager.saveSession(viewModel.tabs, viewModel.currentTabIndex)
+            DrawerPersistence.saveState(drawerViewModel)
+            foregroundListener.values.forEach { it.invoke(false) }
+
+            LspRegistry.updateConfiguration(this@MainActivity)
+        }
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        isPaused = false
+        instance = this
+        // Re-check storage permission after returning from system settings so granting it is
+        // picked up immediately (and storage-gated features unlock) without restarting the app.
+        if (Settings.shown_disclaimer) {
+            lifecycleScope.launch(Dispatchers.Main) { FilePermission.verifyStoragePermission(this@MainActivity) }
+        }
+        lifecycleScope.launch(Dispatchers.IO) {
+            handleIntent(intent)
+            foregroundListener.values.forEach { it.invoke(true) }
+
+            val lspConfigChanges = LspRegistry.getConfigurationChanges(this@MainActivity)
+            if (lspConfigChanges.isNotEmpty()) {
+                val affectedExtensions = lspConfigChanges.flatMap { it.supportedExtensions }
+                viewModel.tabs
+                    .filterIsInstance<EditorTab>()
+                    .filter { affectedExtensions.contains(it.file.getExtension()) }
+                    .forEach { tab -> tab.applyHighlightingAndConnectLSP() }
+            }
+
+            delay(1000.milliseconds)
+            handleSupport()
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
+    suspend fun handleIntent(intent: Intent) {
+        if (Intent.ACTION_VIEW == intent.action || Intent.ACTION_EDIT == intent.action) {
+            if (intent.data == null) {
+                errorDialog(msg = strings.invalid_intent.getFilledString(intent.toString()))
+                return
+            }
+
+            val uri = intent.data!!
+
+            if (uri.toString().startsWith("content://telephony")) {
+                toast(strings.unsupported_content)
+                return
+            }
+
+            val file = uri.toFileObject(expectedIsFile = true)
+
+            viewModel.awaitSessionRestoration()
+            viewModel.editorManager.openFile(file, projectRoot = null, switchToTab = true)
+            setIntent(Intent())
+        }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val handledEvent = KeybindingsManager.handleGlobalEvent(event, this)
+        if (handledEvent) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        AppCompatDelegate.setDefaultNightMode(Settings.theme_mode)
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        instance = this
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
+
+        setContent {
+            val navController = rememberNavController()
+            val startDestination = remember {
+                if (Settings.shown_disclaimer) {
+                    MainRoutes.Main.route
+                } else {
+                    MainRoutes.Disclaimer.route
+                }
+            }
+            var splashDone by rememberSaveable { mutableStateOf(false) }
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Always compose the real app immediately so it fully loads and lays out *behind* the
+                // opaque splash. The splash itself waits for the main thread to go idle before it
+                // animates, so the launch animation never competes with heavy composition.
+                NavHost(
+                    navController = navController,
+                    startDestination = startDestination,
+                ) {
+                    composable(MainRoutes.Main.route) {
+                        MainContentHost()
+                        LaunchedEffect(Unit) {
+                            FilePermission.verifyStoragePermission(this@MainActivity)
+                        }
+                    }
+                    composable(MainRoutes.Disclaimer.route) { DisclaimerScreen(navController) { finishAffinity() } }
+                }
+                if (!splashDone) {
+                    com.goydevv.arseide.theme.XedTheme {
+                        SplashScreen(onFinish = { splashDone = true })
+                    }
+                }
+            }
+
+            // One-time "What's new" dialog, shown once the splash has handed off. Re-appears each
+            // launch until the user ticks "Never show again for this version".
+            var changelogDismissed by rememberSaveable { mutableStateOf(false) }
+            if (splashDone && !changelogDismissed && com.goydevv.arseide.components.ChangelogInfo.shouldShow()) {
+                com.goydevv.arseide.theme.XedTheme {
+                    com.goydevv.arseide.components.ChangelogDialog(onClose = { changelogDismissed = true })
+                }
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        FilePermission.onRequestPermissionsResult(requestCode, grantResults, lifecycleScope, this)
+    }
+}

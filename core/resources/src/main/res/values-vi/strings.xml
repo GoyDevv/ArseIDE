@@ -35,7 +35,7 @@
     <string name="add_file">Thêm tệp khác</string>
     <string name="replace_all">Thay thế tất cả</string>
     <string name="download">Tải xuống</string>
-    <string name="warning_private_dir">Nội dung của thư mục này sẽ bị xóa nếu bạn xóa dữ liệu hoặc xóa Xed-Editor</string>
+    <string name="warning_private_dir">Nội dung của thư mục này sẽ bị xóa nếu bạn xóa dữ liệu hoặc xóa Arse IDE</string>
     <string name="toggle_word_wrap">Đóng/mở Word wrap</string>
     <string name="restart_required">Yêu cầu khởi động lại</string>
     <string name="go_next">Tiếp theo</string>
@@ -54,10 +54,10 @@
     <string name="open">Mở</string>
     <string name="permission_denied">Quyền bị từ chối</string>
     <string name="manage_storage">Quản lý bộ nhớ</string>
-    <string name="manage_storage_reason">­Xed-Editor cần quyền truy cập bộ nhớ để chỉnh sửa tệp. Vui lòng cấp quyền truy cập trong cài đặt hệ thống sắp hiện ra.</string>
+    <string name="manage_storage_reason">­Arse IDE cần quyền truy cập bộ nhớ để chỉnh sửa tệp. Vui lòng cấp quyền truy cập trong cài đặt hệ thống sắp hiện ra.</string>
     <string name="ok">OK</string>
     <string name="private_files">Tệp riêng tư</string>
-    <string name="private_files_desc">Tệp riêng tư của Xed-Editor</string>
+    <string name="private_files_desc">Tệp riêng tư của Arse IDE</string>
     <string name="error">Lỗi</string>
     <string name="open_dir_desc">Mở một thư mục sử dụng trình duyệt tệp của hệ thống</string>
     <string name="internal_storage">Bộ nhớ trong</string>
@@ -93,7 +93,7 @@
     <string name="update_av">Có bản cập nhật mới</string>
     <string name="update">Cập nhật</string>
     <string name="about">Về ứng dụng</string>
-    <string name="about_desc">Về Xed-Editor</string>
+    <string name="about_desc">Về Arse IDE</string>
     <string name="text_size">Kích thước văn bản</string>
     <string name="text_size_desc">Chỉnh kích thước văn bản</string>
     <string name="monet">Màu động</string>
@@ -414,7 +414,7 @@
     <string name="line_spacing_desc">Hệ số nhân chiều cao cho mỗi dòng trong trình soạn thảo</string>
     <string name="terminal_home">Thư mục chính của terminal</string>
     <string name="terminal_home_desc">Thư mục chính mặc định của terminal</string>
-    <string name="info_ext">Tiện ích mở rộng có thể được sử dụng để sửa đổi hành vi và tính năng của Xed-Editor. Để tìm hiểu cách xây dựng tiện ích mở rộng, bấm vào đây.</string>
+    <string name="info_ext">Tiện ích mở rộng có thể được sử dụng để sửa đổi hành vi và tính năng của Arse IDE. Để tìm hiểu cách xây dựng tiện ích mở rộng, bấm vào đây.</string>
     <string name="feature_toggles">Chuyển đổi tính năng</string>
     <string name="expose_saf">Hiển thị thư mục chính</string>
     <string name="expose_saf_desc">Cho phép ứng dụng bên ngoài truy cập thư mục chính qua trình chọn tệp hệ thống (SAF)</string>
@@ -440,7 +440,7 @@
     <string name="strict_mode">Chế độ nghiêm ngặt</string>
     <string name="strict_mode_desc">Phát hiện truy cập đĩa hoặc mạng trên luồng chính</string>
     <string name="anr_watchdog">ANR Watchdog (Giám sát ANR)</string>
-    <string name="anr_watchdog_desc">Tự động kết thúc Xed-Editor nếu nó không phản hồi trong hơn 5 giây</string>
+    <string name="anr_watchdog_desc">Tự động kết thúc Arse IDE nếu nó không phản hồi trong hơn 5 giây</string>
     <string name="verbose_errors">Hiển thị chi tiết lỗi</string>
     <string name="verbose_errors_desc">Bao gồm stacktrace trong hộp thoại lỗi</string>
     <string name="unsupported_file_ext">Phần mở rộng tệp không được hỗ trợ</string>

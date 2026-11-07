@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    " C ",
+    " C ",
+    " S "
+  ],
+  "key": {
+    "C": "aether_crystal:crystal_shard",
+    "S": "minecraft:stick"
+  },
+  "result": {
+    "id": "aether_crystal:crystal_blade",
+    "count": 1
+  }
+}

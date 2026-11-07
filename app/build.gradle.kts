@@ -8,18 +8,18 @@ plugins {
 }
 
 android {
-    namespace = "com.rk.application"
+    namespace = "com.goydevv.arseide.app"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.rk.xededitor"
+        applicationId = "com.goydevv.arseide"
         minSdk = 26
 
         targetSdk = 37
 
         // versioning
-        versionCode = 128
-        versionName = "4.2.1"
+        versionCode = 130
+        versionName = "5.0.0"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -67,8 +67,6 @@ android {
                         (properties["storeFile"] as String?)?.let { File(it) }
                     }
 
-                // Only use real signing when every value is actually present (forks without
-                // signing secrets get an empty properties file, which must not be used).
                 if (
                     !pKeyAlias.isNullOrBlank() &&
                         !pKeyPassword.isNullOrBlank() &&
@@ -85,8 +83,6 @@ android {
             }
 
             if (!configured) {
-                // Fallback so `assembleRelease` produces an installable APK on forks/CI without
-                // signing secrets. NOTE: signed with the public testkey — not for store upload.
                 println("Release signing secrets not found; falling back to bundled debug testkey.")
                 storeFile = file(layout.buildDirectory.dir("../testkey.keystore"))
                 storePassword = "testkey"
@@ -107,6 +103,7 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
             isCrunchPngs = false
+            resValue("string", "app_name", "Arse IDE")
 
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
 
@@ -116,7 +113,7 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-DEBUG"
-            resValue("string", "app_name", "Xed-Debug")
+            resValue("string", "app_name", "Arse IDE Debug")
         }
 
         create("benchmark") {
@@ -125,19 +122,12 @@ android {
             isDebuggable = false
         }
 
-        // XED-PRO release build: distinct applicationId + label so it installs ALONGSIDE the
-        // official Xed-Editor (and the debug build) instead of replacing it. This is a real release
-        // build (initWith release, not debuggable). It is ALWAYS signed with the bundled, committed
-        // keystore (the "debug" testkey), so every build — locally, on any fork, and on CI — uses the
-        // exact same signing key. That means each new XED-PRO APK installs as an update over the
-        // previous one (Android requires an identical signature to update). Do NOT change this key,
-        // or existing installs will fail to update until they're uninstalled.
+        // Arse IDE release build (`com.goydevv.arseide`, label "Arse IDE").
+        // Signed with the bundled testkey so every build updates cleanly over the previous install.
         create("pro") {
             initWith(buildTypes.getByName("release"))
             matchingFallbacks += listOf("release")
-            applicationIdSuffix = ".pro"
-            versionNameSuffix = "-PRO"
-            resValue("string", "app_name", "XED-PRO")
+            resValue("string", "app_name", "Arse IDE")
             signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             isShrinkResources = false

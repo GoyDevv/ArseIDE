@@ -1,0 +1,125 @@
+package com.goydevv.arseide.activities.settings
+
+import androidx.compose.runtime.Composable
+import androidx.navigation.NavHostController
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
+import com.goydevv.arseide.App
+import com.goydevv.arseide.animations.NavigationAnimationTransitions
+import com.goydevv.arseide.lsp.LspRegistry
+import com.goydevv.arseide.settings.SettingsScreen
+import com.goydevv.arseide.settings.about.AboutScreen
+import com.goydevv.arseide.settings.app.SettingsAppScreen
+import com.goydevv.arseide.settings.debugOptions.AppLogs
+import com.goydevv.arseide.settings.debugOptions.DeveloperOptions
+import com.goydevv.arseide.settings.editor.AppFontScreen
+import com.goydevv.arseide.settings.editor.DefaultEncoding
+import com.goydevv.arseide.settings.editor.DefaultLineEnding
+import com.goydevv.arseide.settings.editor.EditExtraKeys
+import com.goydevv.arseide.settings.editor.EditToolbarActions
+import com.goydevv.arseide.settings.editor.EditorFontScreen
+import com.goydevv.arseide.settings.editor.ExcludeFiles
+import com.goydevv.arseide.settings.editor.FormatterSettings
+import com.goydevv.arseide.settings.editor.SettingsEditorScreen
+import com.goydevv.arseide.settings.editor.TerminalFontScreen
+import com.goydevv.arseide.settings.extension.ExtensionDetail
+import com.goydevv.arseide.settings.extension.ExtensionScreen
+import com.goydevv.arseide.settings.extension.ExtensionSettings
+import com.goydevv.arseide.settings.git.GitSettings
+import com.goydevv.arseide.settings.keybinds.KeybindingsScreen
+import com.goydevv.arseide.settings.language.LanguageScreen
+import com.goydevv.arseide.settings.lsp.LspServerDetail
+import com.goydevv.arseide.settings.lsp.LspServerLogs
+import com.goydevv.arseide.settings.lsp.LspSettings
+import com.goydevv.arseide.settings.runners.HtmlRunnerSettings
+import com.goydevv.arseide.settings.runners.RunnerSettings
+import com.goydevv.arseide.settings.support.Support
+import com.goydevv.arseide.settings.terminal.SettingsTerminalScreen
+import com.goydevv.arseide.settings.terminal.TerminalCheckScreen
+import com.goydevv.arseide.settings.terminal.TerminalExtraKeys
+import com.goydevv.arseide.settings.theme.ThemeScreen
+
+@Composable
+fun SettingsNavHost(navController: NavHostController, activity: SettingsActivity) {
+    NavHost(
+        navController = navController,
+        startDestination = SettingsRoutes.Settings.route,
+        enterTransition = { NavigationAnimationTransitions.enterTransition },
+        exitTransition = { NavigationAnimationTransitions.exitTransition },
+        popEnterTransition = { NavigationAnimationTransitions.popEnterTransition },
+        popExitTransition = { NavigationAnimationTransitions.popExitTransition },
+    ) {
+        composable(SettingsRoutes.Settings.route) { SettingsScreen(navController) }
+        composable(SettingsRoutes.AppSettings.route) { SettingsAppScreen(activity, navController) }
+        composable(SettingsRoutes.EditorSettings.route) { SettingsEditorScreen(navController) }
+        composable(SettingsRoutes.Keybindings.route) { KeybindingsScreen() }
+        composable(SettingsRoutes.TerminalSettings.route) { SettingsTerminalScreen() }
+        composable(SettingsRoutes.TerminalExtraKeys.route) { TerminalExtraKeys() }
+        composable(SettingsRoutes.TerminalCheck.route) { TerminalCheckScreen() }
+        composable(SettingsRoutes.About.route) { AboutScreen() }
+        composable(SettingsRoutes.EditorFontScreen.route) { EditorFontScreen() }
+        composable(SettingsRoutes.AppFontScreen.route) { AppFontScreen() }
+        composable(SettingsRoutes.TerminalFontScreen.route) { TerminalFontScreen() }
+        composable(SettingsRoutes.DefaultEncoding.route) { DefaultEncoding() }
+        composable(SettingsRoutes.DefaultLineEnding.route) { DefaultLineEnding() }
+        composable(SettingsRoutes.ToolbarActions.route) { EditToolbarActions() }
+        composable(SettingsRoutes.ExtraKeys.route) { EditExtraKeys() }
+        composable(
+            "${SettingsRoutes.ExcludeFiles.route}/{isDrawer}",
+            arguments = listOf(navArgument("isDrawer", builder = { type = NavType.BoolType })),
+        ) {
+            val isDrawer = it.arguments?.getBoolean("isDrawer")!!
+            ExcludeFiles(isDrawer)
+        }
+        composable(SettingsRoutes.DeveloperOptions.route) { DeveloperOptions(navController = navController) }
+        composable(SettingsRoutes.AppLogs.route) { AppLogs() }
+        composable(SettingsRoutes.Support.route) { Support() }
+        composable(SettingsRoutes.LanguageScreen.route) { LanguageScreen() }
+        composable(SettingsRoutes.Runners.route) { RunnerSettings(navController = navController) }
+        composable(SettingsRoutes.HtmlRunner.route) { HtmlRunnerSettings() }
+        composable(SettingsRoutes.Formatters.route) { FormatterSettings(navController) }
+        composable(SettingsRoutes.LspSettings.route) { LspSettings(navController) }
+        composable(
+            "${SettingsRoutes.LspServerDetail.route}/{serverId}",
+            arguments = listOf(navArgument("serverId", builder = { type = NavType.StringType })),
+        ) { backStackEntry ->
+            val serverId = backStackEntry.arguments?.getString("serverId")!!
+            val server = LspRegistry.getForId(serverId)!!
+            LspServerDetail(navController, server)
+        }
+        composable(
+            "${SettingsRoutes.LspServerLogs.route}/{serverId}/{instanceId}",
+            arguments =
+                listOf(
+                    navArgument("serverId", builder = { type = NavType.StringType }),
+                    navArgument("instanceId", builder = { type = NavType.StringType }),
+                ),
+        ) { backStackEntry ->
+            val serverId = backStackEntry.arguments?.getString("serverId")!!
+            val server = LspRegistry.getForId(serverId)!!
+            val instanceId = backStackEntry.arguments?.getString("instanceId")!!
+            LspServerLogs(server, instanceId)
+        }
+        composable(SettingsRoutes.Themes.route) { ThemeScreen() }
+        composable(SettingsRoutes.Extensions.route) { ExtensionScreen(navController = navController) }
+        composable(
+            "${SettingsRoutes.ExtensionDetail.route}/{extensionId}",
+            arguments = listOf(navArgument("extensionId", builder = { type = NavType.StringType })),
+        ) {
+            val extensionId = it.arguments?.getString("extensionId")
+            val extension = extensionId?.let { App.extensionManager.getExtension(it) }
+            ExtensionDetail(extension, navController)
+        }
+        composable(
+            "${SettingsRoutes.ExtensionSettings.route}/{extensionId}",
+            arguments = listOf(navArgument("extensionId", builder = { type = NavType.StringType })),
+        ) {
+            val extensionId = it.arguments?.getString("extensionId")
+            val extension = extensionId?.let { App.extensionManager.getExtension(it) }
+            ExtensionSettings(extension)
+        }
+        composable(SettingsRoutes.Git.route) { GitSettings() }
+    }
+}

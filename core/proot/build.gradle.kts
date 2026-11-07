@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.rk.proot"
+    namespace = "com.goydevv.arseide.proot"
     ndkVersion = "29.0.13846066"
     compileSdk {
         version = release(36)

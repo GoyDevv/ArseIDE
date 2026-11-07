@@ -1,8 +1,8 @@
-Xed-Editor v2.9.5 (40)
+Arse IDE v2.9.5 (40)
 
 - fixed external files bug
 
-Xed-Editor v2.9.4 (39)
+Arse IDE v2.9.4 (39)
 
 - fixed white flash when opening tab in dark mode
 - fixed c# syntax highlighting

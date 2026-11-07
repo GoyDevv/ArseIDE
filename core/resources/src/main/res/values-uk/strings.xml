@@ -55,7 +55,7 @@
     <string name="ok">Добре</string>
     <string name="clone_repo">Сховище клонів</string>
     <string name="private_files">Приватні файли</string>
-    <string name="private_files_desc">Приватні файли від Xed-Editor</string>
+    <string name="private_files_desc">Приватні файли від Arse IDE</string>
     <string name="cloning">Клонування репозиторію…</string>
     <string name="error">Помилка</string>
     <string name="open_dir_desc">Виберіть каталог через системний файл менеджер</string>
@@ -100,7 +100,7 @@
     <string name="theme_mode_desc">Змінити тему застосунку</string>
     <string name="show_suggestions">Показувати пропозиції клавіатури</string>
     <string name="about">Про застосунок</string>
-    <string name="about_desc">Про Xed-Editor</string>
+    <string name="about_desc">Про Arse IDE</string>
     <string name="version">Версія</string>
     <string name="version_code">Код версії</string>
     <string name="github">GitHub</string>
@@ -155,14 +155,14 @@
     <string name="install_from_storage">Встановити зі сховища</string>
     <string name="no_ext">Розширень не знайдено.</string>
     <string name="loading">Завантаження…</string>
-    <string name="info_ext">Розширення дозволяють змінювати поведінку та функціонал Xed-Editor. Щоб дізнатися, як створити розширення, натисніть тут.</string>
+    <string name="info_ext">Розширення дозволяють змінювати поведінку та функціонал Arse IDE. Щоб дізнатися, як створити розширення, натисніть тут.</string>
     <string name="downloading">Завантаження…</string>
     <string name="network_err">Помилка мережі. Перевірте, чи коректно працює ваше інтернет-з\'єднання.</string>
     <string name="disable_virtual_kbd">Вимкнути віртуальну клавіатуру</string>
     <string name="disable_virtual_kbd_desc">Вимкнути віртуальну клавіатуру, якщо доступна апаратна</string>
     <string name="highlighting">Підсвічування синтаксису</string>
     <string name="toggle_word_wrap">Увімкнути/вимкнути перенесення слів</string>
-    <string name="warning_private_dir">Вміст цього каталогу буде видалено, якщо ви очистите дані або видалите Xed-Editor</string>
+    <string name="warning_private_dir">Вміст цього каталогу буде видалено, якщо ви очистите дані або видалите Arse IDE</string>
     <string name="file">Файл</string>
     <string name="folder">Тека</string>
     <string name="backup">Резервне копіювання</string>

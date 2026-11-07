@@ -1,10 +1,10 @@
 ORTHODOX PDF COLLECTION
-XED PRO / TERMINAL COMMANDS + WORKING rclone NOTES
+ARSE IDE / TERMINAL COMMANDS + WORKING rclone NOTES
 ==================================================
 
 Purpose
 -------
-This file records the terminal workflow used in Xed Editor PRO to access the
+This file records the terminal workflow used in Arse IDE PRO to access the
 Google Drive folder "Orthodox PDF Collection" from Shared with me and pull the
 whole tree recursively.
 

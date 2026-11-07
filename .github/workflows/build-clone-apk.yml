@@ -1,9 +1,6 @@
-name: Build XED-PRO APK
+name: Build Arse IDE APK
 
-# Builds the installable, standalone XED-PRO APK (applicationId com.rk.xededitor.pro, label
-# "XED-PRO"). It installs ALONGSIDE the official Xed-Editor instead of replacing it. With no signing
-# secrets it falls back to the bundled testkey, so it works on any fork. Download it from:
-# Actions run -> Artifacts -> "XED-PRO".
+# Builds the installable Arse IDE APK (applicationId com.goydevv.arseide, label "Arse IDE").
 
 on:
   push:
@@ -16,7 +13,7 @@ on:
 
 jobs:
   build-clone:
-    name: Build Clone APK
+    name: Build Arse IDE APK
     runs-on: ubuntu-latest
 
     steps:
@@ -52,17 +49,17 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
-      - name: Build XED-PRO APK
-        run: ./gradlew assemblePro --no-daemon --stacktrace
+      - name: Build Arse IDE APK
+        run: ./gradlew assemblePro --build-cache --no-daemon --stacktrace
 
       - name: Collect APK
         run: |
           mkdir -p out
-          cp app/build/outputs/apk/pro/*.apk "out/XED-PRO-${COMMIT_HASH}.apk"
+          cp app/build/outputs/apk/pro/*.apk "out/ArseIDE-${COMMIT_HASH}.apk"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v7
         with:
-          name: XED-PRO
+          name: Arse-IDE
           path: out/*.apk
           if-no-files-found: error

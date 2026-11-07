@@ -1,4 +1,4 @@
-rootProject.name = "Xed-Editor"
+rootProject.name = "Arse IDE"
 
 pluginManagement {
     repositories {

@@ -1,4 +1,4 @@
-Xed-Editor is a versatile text editor for Android, offering advanced functionality such as syntax highlighting, extensive customization options, and a streamlined interface for efficient editing.
+Arse IDE is a versatile text editor for Android, offering advanced functionality such as syntax highlighting, extensive customization options, and a streamlined interface for efficient editing.
 
 Key Features:
 

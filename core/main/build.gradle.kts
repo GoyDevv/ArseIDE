@@ -38,7 +38,7 @@ val gitCommitDate: Provider<String> = if (isGitRepo) {
 }
 
 android {
-    namespace = "com.rk.xededitor"
+    namespace = "com.goydevv.arseide"
     compileSdk = 37
 
     defaultConfig {

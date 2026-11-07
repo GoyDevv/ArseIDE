@@ -771,7 +771,7 @@ public final class TerminalView extends View {
             mClient.logInfo(LOG_TAG, "onKeyDown(keyCode=" + keyCode + ", isSystem()=" + event.isSystem() + ", event=" + event + ")");
         if (mEmulator == null) return true;
 
-        // Xed-Editor addition
+        // Arse IDE addition
         if (mClient.shouldSupportClipboardKeybindings()) {
             final boolean controlDown = event.isCtrlPressed();
 

@@ -12,7 +12,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
     <uses-permission
         android:name="android.permission.READ_PHONE_STATE"
         tools:node="remove" />
@@ -27,7 +32,7 @@
     </queries>
 
     <application
-        android:name="com.rk.App"
+        android:name="com.goydevv.arseide.App"
         android:allowBackup="true"
         android:appCategory="productivity"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -39,6 +44,7 @@
         android:largeHeap="true"
         android:networkSecurityConfig="@xml/network_security_config"
         android:requestLegacyExternalStorage="true"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="false"
         android:theme="@style/Theme.Karbon"
         tools:targetApi="tiramisu">
@@ -47,19 +53,19 @@
             tools:targetApi="29" />
 
         <service
-            android:name="com.rk.terminal.SessionService"
+            android:name="com.goydevv.arseide.terminal.SessionService"
             android:foregroundServiceType="specialUse" />
 
         <service
-            android:name="com.rk.projects.DependencyInstallService"
+            android:name="com.goydevv.arseide.projects.DependencyInstallService"
             android:foregroundServiceType="specialUse" />
 
         <service
-            android:name="com.rk.runner.RunService"
+            android:name="com.goydevv.arseide.runner.RunService"
             android:foregroundServiceType="specialUse" />
 
         <activity
-            android:name="com.rk.activities.main.MainActivity"
+            android:name="com.goydevv.arseide.activities.main.MainActivity"
             android:alwaysRetainTaskState="true"
             android:exported="true"
             android:inputType="textFilter"
@@ -97,17 +103,17 @@
         </provider>
 
         <activity
-            android:name="com.rk.crashhandler.CrashActivity"
+            android:name="com.goydevv.arseide.crashhandler.CrashActivity"
             android:exported="false" />
         <activity
-            android:name="com.rk.activities.settings.SettingsActivity"
+            android:name="com.goydevv.arseide.activities.settings.SettingsActivity"
             android:exported="false" />
         <activity
-            android:name="com.rk.runner.runners.web.markdown.MDViewer"
+            android:name="com.goydevv.arseide.runner.runners.web.markdown.MDViewer"
             android:exported="false"
             tools:ignore="Instantiatable" />
         <activity
-            android:name="com.rk.activities.terminal.Terminal"
+            android:name="com.goydevv.arseide.activities.terminal.Terminal"
             android:exported="true"
             android:label="Terminal"
             android:launchMode="singleTask"

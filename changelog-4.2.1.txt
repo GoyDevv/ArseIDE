@@ -1,4 +1,4 @@
-Xed-Editor PRO — 4.2.1
+Arse IDE PRO — 4.2.1
 
 A major UI and Git release: a redesigned Git workspace with GitHub built in, a new animated
 launch screen, a smoother interface, and a batch of quality-of-life fixes.
@@ -6,7 +6,7 @@ launch screen, a smoother interface, and a batch of quality-of-life fixes.
 ────────────────────────────────────────────────────────────────────────────────
 ✨ Startup
 ────────────────────────────────────────────────────────────────────────────────
-• Redesigned launch screen: the "XED PRO" wordmark with a "by GoyDevv" tagline, a loading progress
+• Redesigned launch screen: the "ARSE IDE" wordmark with a "by GoyDevv" tagline, a loading progress
   bar and a live status line ("Preparing workspace…", "Loading editor…", "Almost ready…"), on a
   clean dark backdrop using your selected app font.
 • It's load-first: the progress bar only completes once the app has fully loaded behind it, so the

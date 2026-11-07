@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.rk.benchmark"
+    namespace = "com.goydevv.arseide.benchmark"
     compileSdk = 37
 
     defaultConfig {

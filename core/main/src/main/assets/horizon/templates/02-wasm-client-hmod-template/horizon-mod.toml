@@ -1,0 +1,18 @@
+id = "java_port_client"
+name = "Java Port Client & HUD Template"
+version = "0.1.0"
+description = "Template for porting client-side Java mods (HUDs, keybinds, raycast block inspectors, custom screens, and item right-click logic) to WASM."
+authors = ["YourName"]
+api = "0.2"
+side = "client"
+capabilities = [
+    "game-read",
+    "chat",
+    "hud",
+    "storage",
+    "command",
+    "ui",
+    "render",
+    "input",
+]
+experimental = ["ui", "render", "input"]

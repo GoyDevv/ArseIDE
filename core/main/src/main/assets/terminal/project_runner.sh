@@ -1,36 +1,30 @@
 # project_runner.sh — project-aware run/build, executed inside the Ubuntu sandbox.
 #
-# Invoked by com.rk.runner.ProjectRunner. The project type is detected on the
-# Kotlin side (ProjectTypeDetector) and passed in, so this script only has to
-# check that the required toolchain is present and run/build the project from
-# its own root directory.
+# Invoked by com.goydevv.arseide.runner.ProjectRunner.
 #
 # Args:
-#   $1 = project type   (DetectedProjectType enum name: PYTHON, NODE, FABRIC_MOD,
-#                         FORGE_MOD, GRADLE, ANDROID, SYNC, RUST, GO, WEB)
+#   $1 = project type   (DetectedProjectType enum name: HORIZON_MOD, HORIZON_MIXIN_MOD,
+#                         PYTHON, NODE, FABRIC_MOD, FORGE_MOD, GRADLE, ANDROID, SYNC, RUST, GO, WEB)
 #   $2 = project dir     (absolute path; already the working directory)
 #   $3 = entry file      (absolute path of the currently open file, optional)
 #   $4 = gradle args     (extra flags for gradle builds, space-separated; optional)
-#                         e.g. "--info --stacktrace --offline". Set per project in the
-#                         IDE Configuration view (see com.rk.projects.GradleConfig).
 #   $5 = build type      (debug|release; Android picks assembleDebug/assembleRelease)
-#
-# No `set -e`: we want to surface build/run errors to the user and keep the
-# terminal open so the output (and any errors) stay visible.
 
 source "$LOCAL/bin/utils"
 
 export DEBIAN_FRONTEND=noninteractive
+# Bound child processes and enable Gradle build caching to prevent Android 12+ Phantom Process Killer
+export GRADLE_OPTS="${GRADLE_OPTS:--Xmx1536m -Dfile.encoding=UTF-8 -Dorg.gradle.caching=true -Dorg.gradle.workers.max=2 -Dkotlin.compiler.execution.strategy=in-process}"
+export CARGO_BUILD_JOBS=2
+export RAYON_NUM_THREADS=2
+export MAKEFLAGS="-j2"
 
 TYPE="${1:-UNKNOWN}"
 PROJECT_DIR="${2:-$PWD}"
 ENTRY="${3:-}"
-GRADLE_ARGS="${4:-}"
+GRADLE_ARGS="${4:---build-cache}"
 BUILD_TYPE="${5:-debug}"
 
-# Resolve the directory we can actually enter. Shared storage is reliably available at /sdcard
-# inside the sandbox, while the canonical /storage/emulated/0 form sometimes isn't, so fall back
-# to the /sdcard equivalent before giving up.
 enter_dir() {
   cd "$1" 2>/dev/null && return 0
   case "$1" in
@@ -55,8 +49,6 @@ case "$TYPE" in
     ;;
 esac
 
-# --- helpers ---------------------------------------------------------------
-
 show_result() {
   local code="$1"
   if [ "$code" -eq 0 ]; then
@@ -67,7 +59,6 @@ show_result() {
   return "$code"
 }
 
-# need <bin> <human-readable name>
 need() {
   if ! command_exists "$1"; then
     error "Required tool '$1' ($2) is not installed in the sandbox."
@@ -76,19 +67,32 @@ need() {
   fi
 }
 
-# Detect the Java version requested by the Gradle build files (8, 11, 17, 21) and ensure
-# that exact OpenJDK is installed and exported as JAVA_HOME for this build.
+# Ensure global ~/.gradle/gradle.properties enables build caching & limits workers
+ensure_gradle_cache_config() {
+  mkdir -p "$HOME/.gradle"
+  local gp="$HOME/.gradle/gradle.properties"
+  touch "$gp"
+  if ! grep -q '^org\.gradle\.caching=' "$gp" 2>/dev/null; then
+    printf '\norg.gradle.caching=true\n' >> "$gp"
+  else
+    sed -i 's|^org\.gradle\.caching=.*|org.gradle.caching=true|' "$gp"
+  fi
+  if ! grep -q '^org\.gradle\.workers\.max=' "$gp" 2>/dev/null; then
+    printf 'org.gradle.workers.max=2\n' >> "$gp"
+  fi
+  if ! grep -q '^kotlin\.compiler\.execution\.strategy=' "$gp" 2>/dev/null; then
+    printf 'kotlin.compiler.execution.strategy=in-process\n' >> "$gp"
+  fi
+}
+
 ensure_project_jdk() {
   local req_jdk=""
   local files="app/build.gradle.kts build.gradle.kts app/build.gradle build.gradle"
 
-  # 1. Check JavaLanguageVersion.of(NN) or jvmToolchain(NN)
   req_jdk=$(grep -hoE '(JavaLanguageVersion\.of|jvmToolchain)[[:space:]]*\([[:space:]]*[0-9]+' $files 2>/dev/null | grep -oE '[0-9]+' | head -1)
-  # 2. Check options.release = NN
   if [ -z "$req_jdk" ]; then
     req_jdk=$(grep -hoE 'release[[:space:]]*=[[:space:]]*[0-9]+' $files 2>/dev/null | grep -oE '[0-9]+' | head -1)
   fi
-  # 3. Check VERSION_1_8 / VERSION_NN / JVM_1_8 / JVM_NN
   if [ -z "$req_jdk" ]; then
     local ver_tok
     ver_tok=$(grep -hoE '(VERSION|JVM)_(1_8|[0-9]+)' $files 2>/dev/null | head -1)
@@ -119,6 +123,18 @@ ensure_project_jdk() {
   fi
 }
 
+run_gradlew() {
+  ensure_gradle_cache_config
+  chmod +x ./gradlew 2>/dev/null
+  if [ -x ./gradlew ]; then
+    ./gradlew --build-cache -Dorg.gradle.caching=true -Dorg.gradle.workers.max=2 "$@" 2>&1 | grep -vE "Caching disabled for task|Build cache is disabled"
+    return "${PIPESTATUS[0]}"
+  else
+    bash ./gradlew --build-cache -Dorg.gradle.caching=true -Dorg.gradle.workers.max=2 "$@" 2>&1 | grep -vE "Caching disabled for task|Build cache is disabled"
+    return "${PIPESTATUS[0]}"
+  fi
+}
+
 gradle_build() {
   ensure_project_jdk
   need java "JDK"
@@ -126,16 +142,12 @@ gradle_build() {
     error "gradlew not found in the project root. This Gradle project is missing its wrapper."
     exit 1
   fi
-  # Make the wrapper executable (shared storage / fresh clones often drop the +x bit).
   chmod +x ./gradlew 2>/dev/null
   info "Building with ./gradlew build $GRADLE_ARGS ..."
-  # $GRADLE_ARGS is intentionally unquoted so multiple flags word-split into separate args.
   run_gradlew build $GRADLE_ARGS
   show_result $?
 }
 
-# Point Gradle at the Android SDK (installed via the Dependencies dialog into $HOME/android-sdk),
-# and write/repair local.properties so the Android Gradle plugin can find it.
 setup_android_sdk() {
   if [ -z "$ANDROID_HOME" ] && [ -d "$HOME/android-sdk" ]; then
     export ANDROID_HOME="$HOME/android-sdk"
@@ -158,17 +170,6 @@ setup_android_sdk() {
   fi
 }
 
-# Run gradlew with the given args, honouring the noexec fallback.
-run_gradlew() {
-  chmod +x ./gradlew 2>/dev/null
-  if [ -x ./gradlew ]; then
-    ./gradlew "$@"
-  else
-    bash ./gradlew "$@"
-  fi
-}
-
-# Make sure the Android SDK (and a matching JDK + ARM64 aapt2) are present before building.
 ensure_android_sdk() {
   export ANDROID_HOME="$HOME/android-sdk"
   export ANDROID_SDK_ROOT="$ANDROID_HOME"
@@ -176,8 +177,8 @@ ensure_android_sdk() {
   local SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 
   ensure_project_jdk
+  ensure_gradle_cache_config
 
-  # 1. Bootstrap the SDK (JDK + command-line tools + platform-tools + aapt) if it isn't installed yet.
   if [ ! -x "$SDKM" ] || [ ! -d "$ANDROID_HOME/platform-tools" ]; then
     info "Android SDK not found — downloading it now (this can take a while) ..."
     apt-get update -y && apt-get install -y wget curl unzip aapt openjdk-17-jdk openjdk-21-jdk || {
@@ -202,7 +203,6 @@ ensure_android_sdk() {
     cd "$proj" 2>/dev/null
   fi
 
-  # Configure native aapt2 on non-x86_64 hosts (e.g. ARM64 Android devices) so AGP doesn't fail on x86_64 binaries.
   local ARCH
   ARCH=$(uname -m)
   if [ "$ARCH" != "x86_64" ]; then
@@ -224,7 +224,6 @@ ensure_android_sdk() {
   [ -x "$SDKM" ] || return 0
   yes | "$SDKM" --sdk_root="$ANDROID_HOME" --licenses >/dev/null 2>&1 || true
 
-  # 2. Install the EXACT platform the project targets (compileSdk from the build file).
   local CSDK
   CSDK=$(grep -hoE 'compileSdk(Version)?[[:space:]]*[=(]?[[:space:]]*[0-9]+' app/build.gradle.kts build.gradle.kts app/build.gradle build.gradle 2>/dev/null | grep -oE '[0-9]+' | head -1)
   if [ -z "$CSDK" ]; then
@@ -235,7 +234,6 @@ ensure_android_sdk() {
     "$SDKM" --sdk_root="$ANDROID_HOME" "platforms;android-$CSDK" || warn "Could not install platform android-$CSDK; Gradle may fetch it during the build."
   fi
 
-  # 3. Make sure at least one build-tools is present (newest available).
   if [ ! -d "$ANDROID_HOME/build-tools" ] || [ -z "$(ls -A "$ANDROID_HOME/build-tools" 2>/dev/null)" ]; then
     local BT
     BT=$("$SDKM" --sdk_root="$ANDROID_HOME" --list 2>/dev/null | grep -oE 'build-tools;[0-9.]+' | sort -V | tail -1)
@@ -259,10 +257,27 @@ ensure_android_sdk() {
 # --- per-type dispatch -----------------------------------------------------
 
 case "$TYPE" in
+  HORIZON_MOD | HORIZON_MIXIN_MOD)
+    need python3 "Python 3"
+    if [ -f Cargo.toml ] && [ -f horizon-mod.toml ]; then
+      need cargo "Rust (cargo)"
+      if command_exists rustup; then
+        rustup target add wasm32-unknown-unknown >/dev/null 2>&1 || true
+      fi
+    fi
+    if [ -f tools/package_hmod.py ]; then
+      info "Validating & packaging Horizon Mod with tools/package_hmod.py ..."
+      python3 tools/package_hmod.py .
+      show_result $?
+    else
+      error "tools/package_hmod.py not found in project."
+      show_result 1
+    fi
+    ;;
+
   PYTHON)
     need python3 "Python 3"
     target="$ENTRY"
-    # Fall back to a conventional entry point if the open file isn't a .py file.
     if [ -z "$target" ] || [ ! -f "$target" ] || [ "${target##*.}" != "py" ]; then
       target=""
       for candidate in main.py app.py __main__.py run.py manage.py; do
@@ -329,7 +344,6 @@ case "$TYPE" in
       OUT_DIR="debug"
     fi
     info "Building APK with ./gradlew $ASSEMBLE_TASK $GRADLE_ARGS ..."
-    # $GRADLE_ARGS is intentionally unquoted so multiple flags word-split into separate args.
     run_gradlew "$ASSEMBLE_TASK" $GRADLE_ARGS
     code=$?
     if [ "$code" -eq 0 ]; then
@@ -354,7 +368,6 @@ case "$TYPE" in
       exit 1
     fi
     info "Syncing Gradle dependencies (./gradlew --refresh-dependencies tasks $GRADLE_ARGS) ..."
-    # $GRADLE_ARGS is intentionally unquoted so multiple flags word-split into separate args.
     run_gradlew --refresh-dependencies tasks $GRADLE_ARGS
     show_result $?
     ;;

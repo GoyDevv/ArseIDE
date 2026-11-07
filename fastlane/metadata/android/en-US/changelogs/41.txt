@@ -1,4 +1,4 @@
-Xed-Editor v2.9.6 (41)
+Arse IDE v2.9.6 (41)
 
 - improved uri support
 - code refactored

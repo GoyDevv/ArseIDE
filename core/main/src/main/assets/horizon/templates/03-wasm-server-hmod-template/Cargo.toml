@@ -1,0 +1,10 @@
+[package]
+name = "java-port-server-mod"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+horizon-mod-sdk = { path = "../../sdk/horizon-mod-sdk" }

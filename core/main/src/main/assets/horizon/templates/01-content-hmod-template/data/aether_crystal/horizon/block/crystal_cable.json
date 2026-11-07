@@ -1,0 +1,11 @@
+{
+  "template": "minecraft:chorus_plant",
+  "connects_to": "aether_crystal:cable_connectable",
+  "thickness": 6.0,
+  "properties": {
+    "hardness": 1.5,
+    "light": 3,
+    "sounds": "minecraft:copper"
+  },
+  "item": true
+}

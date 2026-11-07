@@ -1,0 +1,52 @@
+package com.goydevv.arseide.terminal
+
+import com.goydevv.arseide.file.child
+import com.goydevv.arseide.file.createFileIfNot
+import com.goydevv.arseide.file.localBinDir
+import com.goydevv.arseide.file.localDir
+import com.goydevv.arseide.file.sandboxDir
+import com.goydevv.arseide.utils.application
+
+fun setupTerminalFiles() {
+    if (sandboxDir().exists().not() || localBinDir().exists().not()) return
+
+    with(localDir().child("stat")) {
+        if (exists().not()) {
+            createFileIfNot()
+            writeText(stat)
+        }
+    }
+
+    with(localDir().child("vmstat")) {
+        if (exists().not()) {
+            createFileIfNot()
+            writeText(vmstat)
+        }
+    }
+
+    with(localBinDir().child("termux-x11")) {
+        if (exists().not()) {
+            createFileIfNot()
+            writeText(application!!.assets.open("terminal/termux-x11.sh").bufferedReader().use { it.readText() })
+        }
+    }
+
+    val internalFiles = listOf("init", "sandbox", "setup", "utils", "project_runner", "universal_runner", "auto_setup")
+    internalFiles.forEach { setupAssetFile(it) }
+
+    application!!.assets.list("terminal/lsp")?.forEach { setupLspFile(it.removeSuffix(".sh")) }
+}
+
+fun setupLspFile(fileName: String) = setupAssetFile("lsp/$fileName")
+
+fun setupAssetFile(fileName: String) {
+    with(localBinDir().child(fileName)) {
+        parentFile?.mkdirs()
+        val assetText = application!!.assets.open("terminal/$fileName.sh").bufferedReader().use { it.readText() }
+        if (!exists() || runCatching { readText() }.getOrNull() != assetText) {
+            createFileIfNot()
+            writeText(assetText)
+        }
+        runCatching { setExecutable(true, false) }
+    }
+}

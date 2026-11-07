@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">Xed-Editor</string>
+    <string name="app_name" translatable="false">Arse IDE</string>
     <string name="unsupported_content">Unsupported content</string>
     <string name="restart_required">Restart required</string>
     <string name="save">Save</string>
@@ -55,7 +55,7 @@
     <string name="open">Open</string>
     <string name="permission_denied">Permission denied</string>
     <string name="manage_storage">Manage storage</string>
-    <string name="manage_storage_reason">Xed-Editor needs access to edit files in your storage. Please allow the access in the upcoming system setting.</string>
+    <string name="manage_storage_reason">Arse IDE needs access to edit files in your storage. Please allow the access in the upcoming system setting.</string>
     <string name="ok">OK</string>
     <string name="clone_repo">Clone repository</string>
     <string name="clone_repo_desc">Clone remote repository</string>
@@ -101,7 +101,7 @@
     <string name="dep_available">Available</string>
     <string name="dep_queued">Queued</string>
     <string name="private_files">Private files</string>
-    <string name="private_files_desc">Private files of Xed-Editor</string>
+    <string name="private_files_desc">Private files of Arse IDE</string>
     <string name="cloning">Cloning repository…</string>
     <string name="error">Error</string>
     <string name="open_dir_desc">Open a directory via system file picker</string>
@@ -149,7 +149,7 @@
     <string name="theme_mode_desc">Change app color theme</string>
     <string name="show_suggestions">Show keyboard suggestions</string>
     <string name="about">About</string>
-    <string name="about_desc">About Xed-Editor</string>
+    <string name="about_desc">About Arse IDE</string>
     <string name="version">Version</string>
     <string name="version_code">Version code</string>
     <string name="github" translatable="false">GitHub</string>
@@ -205,7 +205,7 @@
     <string name="no_themes">No themes found.</string>
     <string name="no_icon_packs">No icon packs found.</string>
     <string name="loading">Loading…</string>
-    <string name="info_ext">Extensions can be used to modify the behavior and features of Xed-Editor. To learn how to build an extension, click here.</string>
+    <string name="info_ext">Extensions can be used to modify the behavior and features of Arse IDE. To learn how to build an extension, click here.</string>
     <string name="downloading">Downloading…</string>
     <string name="network_err">Network error. Please check that your internet connection is working properly.</string>
     <string name="disable_virtual_kbd">Disable virtual keyboard</string>
@@ -213,7 +213,7 @@
     <string name="highlighting">Syntax highlighting</string>
     <string name="toggle_word_wrap">Toggle word wrap</string>
     <string name="show_all_files">Show all files</string>
-    <string name="warning_private_dir">Content of this directory will get deleted if you clear data or delete Xed-Editor</string>
+    <string name="warning_private_dir">Content of this directory will get deleted if you clear data or delete Arse IDE</string>
     <string name="file">File</string>
     <string name="files">Files</string>
     <string name="folder">Folder</string>
@@ -255,7 +255,7 @@
     <string name="add_theme">Add theme</string>
     <string name="unsupported_feature">This feature is not supported on your device</string>
     <string name="confirm_exit">Are you sure you want to exit?</string>
-    <string name="tab_memory_warning">Not enough memory is available to open this tab. Opening it may cause Xed-Editor to crash. Do you want to continue anyway?</string>
+    <string name="tab_memory_warning">Not enough memory is available to open this tab. Opening it may cause Arse IDE to crash. Do you want to continue anyway?</string>
     <string name="read_mode_desc">Enable read mode by default</string>
     <string name="acquire_wakelock">Acquire wakelock</string>
     <string name="release_wakelock">Release wakelock</string>
@@ -294,7 +294,7 @@
     <string name="strict_mode">Strict mode</string>
     <string name="strict_mode_desc">Detect disk or network access on the main thread</string>
     <string name="anr_watchdog">ANR Watchdog</string>
-    <string name="anr_watchdog_desc">Terminate Xed-Editor if it becomes unresponsive for more than 5 seconds</string>
+    <string name="anr_watchdog_desc">Terminate Arse IDE if it becomes unresponsive for more than 5 seconds</string>
     <string name="verbose_errors">Verbose errors</string>
     <string name="verbose_errors_desc">Include stacktrace in error dialogs</string>
     <string name="unsupported_file_ext">Unsupported file extension</string>
@@ -404,7 +404,7 @@
     <string name="line_number">Line number</string>
     <string name="search_file_folder">Search files in project</string>
     <string name="search_code">Search code in project</string>
-    <string name="incompatible_theme_warning">This theme is not compatible with your current version of Xed-Editor. Would you like to proceed anyway?</string>
+    <string name="incompatible_theme_warning">This theme is not compatible with your current version of Arse IDE. Would you like to proceed anyway?</string>
     <string name="theme_install_failed">Theme installation failed</string>
     <string name="theme_id_missing">JSON file does not specify a valid theme ID. Please add one and try again.</string>
     <string name="theme_name_missing">JSON file does not specify a valid theme name. Please add one and try again.</string>
@@ -444,7 +444,7 @@
     <string name="ctrl">Ctrl</string>
     <string name="alt">Alt</string>
     <string name="shift">Shift</string>
-    <string name="keybinds_info">Xed-Editor supports hardware keyboard shortcuts to help you work faster and more efficiently. A wide set of default keybindings is already available and you can configure them below to your liking.</string>
+    <string name="keybinds_info">Arse IDE supports hardware keyboard shortcuts to help you work faster and more efficiently. A wide set of default keybindings is already available and you can configure them below to your liking.</string>
     <string name="reset_all">Reset all</string>
     <string name="search_keybinds">Search commands or keybindings</string>
     <string name="transform_lowercase">Transform to lowercase</string>
@@ -487,7 +487,7 @@
     <string name="extra_key_bg">Extra key background</string>
     <string name="extra_key_bg_desc">Show background for extra keys</string>
     <string name="actions">Actions</string>
-    <string name="enjoying_xed">Enjoying Xed-Editor?</string>
+    <string name="enjoying_xed">Enjoying Arse IDE?</string>
     <string name="support_message">You\'ve saved %s files and run code %s times with Xed. \n\nI\'m a solo developer keeping this app free and privacy-focused. If Xed has made your coding easier, would you consider supporting its development?\n\nYour support helps me:\n• Build features faster\n• Keep Xed ad-free forever\n• Respond to bugs quickly</string>
     <string name="yes_support">Yes, I\'ll support! ❤️</string>
     <string name="not_for_me">No thanks</string>
@@ -551,8 +551,8 @@
     <string name="icon_pack_install_failed">Icon pack installation failed</string>
     <string name="manifest_missing_fields">The manifest.json file has missing or invalid properties:\n%s\n\nPlease check the file and try again.</string>
     <string name="manifest_missing">The manifest.json file is missing. Please add it and try again.</string>
-    <string name="outdated_extension">This extension was made for an older version of Xed-Editor. Please ask the developer for an update.</string>
-    <string name="outdated_client">Your Xed-Editor is out of date. Please update to the latest version to use this extension.</string>
+    <string name="outdated_extension">This extension was made for an older version of Arse IDE. Please ask the developer for an update.</string>
+    <string name="outdated_client">Your Arse IDE is out of date. Please update to the latest version to use this extension.</string>
     <string name="extension_validation_failed">Extension validation failed</string>
     <string name="general">General</string>
     <string name="advanced">Advanced</string>
@@ -744,7 +744,7 @@
     <string name="dismiss">Dismiss</string>
     <!-- Auto Setup -->
     <string name="auto_setup_title">Set up your environment</string>
-    <string name="auto_setup_message">Xed-Editor can automatically set up its Linux sandbox and install the core tools (curl, git, wget and updates) it needs to build and run code. This one-time setup keeps the terminal from breaking later.</string>
+    <string name="auto_setup_message">Arse IDE can automatically set up its Linux sandbox and install the core tools (curl, git, wget and updates) it needs to build and run code. This one-time setup keeps the terminal from breaking later.</string>
     <string name="auto_setup_storage">Estimated storage</string>
     <string name="auto_setup_data">Estimated download</string>
     <string name="auto_setup_eta">Estimated time</string>
@@ -753,7 +753,7 @@
     <string name="auto_setup_start">Auto Setup</string>
     <string name="auto_setup_skip">Not now</string>
     <string name="auto_setup_decline_title">Skip setup?</string>
-    <string name="auto_setup_decline_message">Without this setup the IDE\'s terminal and build features may break in the future, and you will have to fix it manually. There is no support for manual fixes. You can continue using Xed-Editor as a normal editor.</string>
+    <string name="auto_setup_decline_message">Without this setup the IDE\'s terminal and build features may break in the future, and you will have to fix it manually. There is no support for manual fixes. You can continue using Arse IDE as a normal editor.</string>
     <string name="auto_setup_decline_confirm">Skip anyway</string>
     <string name="auto_setup_go_back">Go back</string>
     <string name="auto_setup_running_title">Setting up…</string>

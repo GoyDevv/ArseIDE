@@ -48,9 +48,9 @@ jobs:
       - name: Set Commit Message
         run: |
           {
-            echo "COMMIT_MSG<<XEDEOF"
+            echo "COMMIT_MSG<<ARSEEOF"
             git log -1 --pretty=%B
-            echo "XEDEOF"
+            echo "ARSEEOF"
           } >> "$GITHUB_ENV"
 
       - name: Clone submodules
@@ -59,54 +59,25 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      - name: Build XED-PRO (release)
-        # Signed with the committed keystore (fixed key) so every build updates cleanly over the last.
-        run: ./gradlew assemblePro --no-daemon && mv app/build/outputs/apk/pro/*.apk app/XED-PRO-${{ env.COMMIT_HASH }}.apk
+      - name: Build Arse IDE (release)
+        run: ./gradlew assemblePro --build-cache --no-daemon && mv app/build/outputs/apk/pro/*.apk "app/ArseIDE-${{ env.COMMIT_HASH }}.apk"
         continue-on-error: false
 
       - name: Archive APK
         uses: actions/upload-artifact@v7
         with:
-          name: XED-PRO
-          path: app/XED-PRO-${{ env.COMMIT_HASH }}.apk
+          name: Arse-IDE
+          path: app/ArseIDE-${{ env.COMMIT_HASH }}.apk
 
-      - name: Send APK to Telegram
-        if: ${{ success() && github.event.head_commit.message != '' }}
-        env:
-          COMMIT_MSG: ${{ github.event.head_commit.message }}
-        run: |
-          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument" \
-            -F chat_id="-1002408175863" \
-            -F message_thread_id="582" \
-            -F document=@"app/XED-PRO-${{ env.COMMIT_HASH }}.apk" \
-            --form-string "caption=$COMMIT_MSG"
-
-      - name: Publish XED-PRO Release
+      - name: Publish Arse IDE Release
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "app/XED-PRO-${{ env.COMMIT_HASH }}.apk"
-          tag: "xed-pro-latest"
+          artifacts: "app/ArseIDE-${{ env.COMMIT_HASH }}.apk"
+          tag: "arse-ide-latest"
           allowUpdates: true
           replacesArtifacts: true
           makeLatest: true
-          name: "XED-PRO — Latest Build"
+          name: "Arse IDE — Latest Build"
           bodyFile: "changelog-4.2.1.txt"
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate Plugin Sdk
-        run: |
-          bash plugin-sdk/build-auto.sh
-
-      - name: Update Release
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        uses: ncipollo/release-action@v1
-        with:
-          artifacts: "plugin-sdk/output/sdk.jar"
-          tag: "sdk-latest"
-          allowUpdates: true
-          replacesArtifacts: true
-          makeLatest: false
-          name: "Latest Plugin SDK Build"
-          body: "This release is automatically updated with the latest sdk.jar."
           token: ${{ secrets.GITHUB_TOKEN }}

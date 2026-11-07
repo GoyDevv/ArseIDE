@@ -1,0 +1,298 @@
+package com.goydevv.arseide.settings.app
+
+import android.content.Intent
+import android.os.Build
+import androidx.activity.compose.LocalActivity
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
+import androidx.navigation.NavController
+import com.google.gson.GsonBuilder
+import com.google.gson.reflect.TypeToken
+import com.goydevv.arseide.activities.settings.SettingsActivity
+import com.goydevv.arseide.activities.settings.SettingsRoutes
+import com.goydevv.arseide.components.BasicToggle
+import com.goydevv.arseide.components.NextScreenCard
+import com.goydevv.arseide.components.SettingsItem
+import com.goydevv.arseide.components.compose.preferences.base.PreferenceGroup
+import com.goydevv.arseide.components.compose.preferences.base.PreferenceLayout
+import com.goydevv.arseide.file.toFileObject
+import com.goydevv.arseide.resources.drawables
+import com.goydevv.arseide.resources.getString
+import com.goydevv.arseide.resources.strings
+import com.goydevv.arseide.settings.Preference
+import com.goydevv.arseide.settings.Settings
+import com.goydevv.arseide.settings.editor.refreshEditors
+import com.goydevv.arseide.theme.amoled
+import com.goydevv.arseide.theme.currentTheme
+import com.goydevv.arseide.theme.dynamicTheme
+import com.goydevv.arseide.utils.dialogRes
+import com.goydevv.arseide.utils.toast
+import com.goydevv.arseide.BuildConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+data class Feature(
+    val nameRes: Int,
+    val key: String,
+    val default: Boolean,
+    val onChange: ((Boolean) -> Unit)? = null,
+    val supported: Boolean = true,
+) {
+    val state: MutableState<Boolean> by lazy { mutableStateOf(supported && Preference.getBoolean(key, default)) }
+
+    fun setEnable(enable: Boolean) {
+        if (!supported) return
+
+        Preference.setBoolean(key, enable)
+        state.value = enable
+        onChange?.invoke(enable)
+    }
+}
+
+object InbuiltFeatures {
+    val terminal = Feature(nameRes = strings.terminal_feature, key = "feature_terminal", default = true)
+    val debugMode = Feature(nameRes = strings.debug_options, key = "debug_mode", default = BuildConfig.DEBUG)
+    val extensions = Feature(nameRes = strings.ext, key = "enable_extension", default = true)
+    val git = Feature(nameRes = strings.git, key = "enable_git", default = true)
+}
+
+@Composable
+fun SettingsAppScreen(activity: SettingsActivity, navController: NavController) {
+    PreferenceLayout(label = stringResource(id = strings.app), backArrowVisible = true) {
+        val scope = rememberCoroutineScope()
+        val gson = remember { GsonBuilder().setPrettyPrinting().create() }
+
+        PreferenceGroup {
+            SettingsItem(
+                label = stringResource(strings.lang),
+                description = stringResource(strings.lang_desc),
+                showSwitch = false,
+                default = false,
+                endWidget = {
+                    Icon(
+                        modifier = Modifier.padding(16.dp),
+                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                    )
+                },
+                sideEffect = { navController.navigate(SettingsRoutes.LanguageScreen.route) },
+            )
+
+            SettingsItem(
+                label = stringResource(strings.check_for_updates),
+                description = stringResource(strings.check_for_updates_desc),
+                default = Settings.check_for_update,
+                sideEffect = { Settings.check_for_update = it },
+            )
+
+            SettingsItem(
+                label = stringResource(strings.fullscreen),
+                description = stringResource(strings.fullscreen_desc),
+                default = Settings.fullscreen,
+                sideEffect = { Settings.fullscreen = it },
+            )
+
+            SettingsItem(
+                label = stringResource(strings.smart_toolbar),
+                description = stringResource(strings.smart_toolbar_desc),
+                default = Settings.smart_toolbar,
+                sideEffect = { Settings.smart_toolbar = it },
+            )
+
+            SettingsItem(
+                label = stringResource(strings.confirm_exit_dialog),
+                description = stringResource(strings.confirm_exit_dialog_desc),
+                default = Settings.confirm_exit,
+                sideEffect = { Settings.confirm_exit = it },
+            )
+
+            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.Q) {
+                SettingsItem(
+                    label = stringResource(strings.manage_storage),
+                    description = stringResource(strings.manage_storage_desc),
+                    showSwitch = false,
+                    default = false,
+                    endWidget = {
+                        Icon(
+                            modifier = Modifier.padding(16.dp),
+                            imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                            contentDescription = null,
+                        )
+                    },
+                    sideEffect = {
+                        val intent = Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                        intent.data = "package:${activity.packageName}".toUri()
+                        activity.startActivity(intent)
+                    },
+                )
+            }
+
+            NextScreenCard(
+                label = stringResource(strings.manage_app_font),
+                description = stringResource(strings.manage_app_font),
+                route = SettingsRoutes.AppFontScreen,
+            )
+        }
+
+        PreferenceGroup(heading = stringResource(strings.feature_toggles)) {
+            val activity = LocalActivity.current
+
+            BasicToggle(
+                label = stringResource(InbuiltFeatures.debugMode.nameRes),
+                checked = InbuiltFeatures.debugMode.state.value,
+                onSwitch = {
+                    if (it) {
+                        dialogRes(
+                            activity = activity,
+                            title = strings.attention.getString(),
+                            msg = strings.debug_mode_warn.getString(),
+                            onCancel = { InbuiltFeatures.debugMode.setEnable(false) },
+                            onOk = { InbuiltFeatures.debugMode.setEnable(true) },
+                        )
+                    } else {
+                        InbuiltFeatures.debugMode.setEnable(false)
+                    }
+                },
+                startWidget = {
+                    Icon(
+                        painter = painterResource(drawables.build),
+                        contentDescription = stringResource(strings.debug_options),
+                        modifier = Modifier.padding(start = 16.dp),
+                    )
+                },
+                enabled = InbuiltFeatures.debugMode.supported,
+            )
+
+            SettingsItem(
+                label = stringResource(InbuiltFeatures.terminal.nameRes),
+                default = InbuiltFeatures.terminal.state.value,
+                sideEffect = { InbuiltFeatures.terminal.setEnable(it) },
+                startWidget = {
+                    Icon(
+                        painter = painterResource(drawables.terminal),
+                        contentDescription = stringResource(strings.terminal),
+                        modifier = Modifier.padding(start = 16.dp),
+                    )
+                },
+                isEnabled = InbuiltFeatures.terminal.supported,
+            )
+
+            SettingsItem(
+                label = stringResource(InbuiltFeatures.extensions.nameRes),
+                default = InbuiltFeatures.extensions.state.value,
+                sideEffect = { InbuiltFeatures.extensions.setEnable(it) },
+                startWidget = {
+                    Icon(
+                        painter = painterResource(drawables.extension),
+                        contentDescription = stringResource(strings.ext),
+                        modifier = Modifier.padding(start = 16.dp),
+                    )
+                },
+                isEnabled = InbuiltFeatures.extensions.supported,
+            )
+
+            SettingsItem(
+                label = stringResource(InbuiltFeatures.git.nameRes),
+                default = InbuiltFeatures.git.state.value,
+                sideEffect = { InbuiltFeatures.git.setEnable(it) },
+                startWidget = {
+                    Icon(
+                        painter = painterResource(drawables.git),
+                        contentDescription = stringResource(strings.git),
+                        modifier = Modifier.padding(start = 16.dp),
+                    )
+                },
+                isEnabled = InbuiltFeatures.git.supported,
+            )
+        }
+
+        PreferenceGroup(heading = stringResource(strings.backup)) {
+            SettingsItem(
+                label = stringResource(id = strings.backup),
+                description = stringResource(id = strings.settings_backup_desc),
+                showSwitch = false,
+                default = false,
+                sideEffect = {
+                    activity.fileManager.createNewFile("application/json", "xed-settings.json") { fileObject ->
+                        if (fileObject == null) return@createNewFile
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val json = gson.toJson(Preference.getAll())
+                                fileObject.getOutPutStream(false).use { outputStream ->
+                                    outputStream.write(json.toByteArray())
+                                }
+                                toast(strings.export_successful)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                toast(strings.export_failed)
+                            }
+                        }
+                    }
+                },
+            )
+            SettingsItem(
+                label = stringResource(id = strings.restore),
+                description = stringResource(id = strings.settings_restore_desc),
+                showSwitch = false,
+                default = false,
+                sideEffect = {
+                    activity.fileManager.requestOpenFile("application/json") { uri ->
+                        if (uri == null) return@requestOpenFile
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val type = object : TypeToken<Map<String, Any>>() {}.type
+                                val content = uri.toFileObject(true).readText()
+                                val json: Map<String, Any> = gson.fromJson(content, type)
+
+                                Preference.clearData()
+                                json.forEach { (key, value) ->
+                                    val expectedType = Preference.preferenceTypes[key]
+
+                                    val fixedValue =
+                                        when (expectedType) {
+                                            Float::class -> (value as Number).toFloat()
+                                            Int::class -> (value as Number).toInt()
+                                            Long::class -> (value as Number).toLong()
+                                            Boolean::class -> value as Boolean
+                                            String::class -> value as String
+                                            else -> value
+                                        }
+
+                                    Preference.put(key, fixedValue)
+                                }
+
+                                // Update theme in the UI if the setting changed
+                                withContext(Dispatchers.Main) {
+                                    AppCompatDelegate.setDefaultNightMode(Settings.theme_mode)
+                                    dynamicTheme.value = Settings.monet
+                                    amoled.value = Settings.amoled
+                                    currentTheme.value = null
+                                    refreshEditors()
+                                }
+
+                                toast(strings.import_successful)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                toast(strings.import_failed)
+                            }
+                        }
+                    }
+                },
+            )
+        }
+    }
+}

@@ -1,0 +1,8 @@
+id = "java_port_server"
+name = "Java Port Server Gameplay Template"
+version = "0.1.0"
+description = "Server-side WASM mod template (api = 0.3) for porting block break/place/use events, vein-mining, timber, or world commands."
+authors = ["YourName"]
+api = "0.3"
+side = "server"
+capabilities = ["world", "players", "storage"]

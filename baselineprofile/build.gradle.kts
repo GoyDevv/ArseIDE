@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.rk.baselineprofile"
+    namespace = "com.goydevv.arseide.baselineprofile"
     compileSdk = 37
 
     defaultConfig {

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Left IDE Code Bracket '<' -->
+    <path
+        android:pathData="M33,40 L23,54 L33,68 L37.5,64.5 L29.5,54 L37.5,43.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="23"
+                android:startY="54"
+                android:endX="37.5"
+                android:endY="54"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FF00E5FF" />
+                <item android:offset="1.0" android:color="#FF0284C7" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Right IDE Code Bracket '>' -->
+    <path
+        android:pathData="M75,40 L85,54 L75,68 L70.5,64.5 L78.5,54 L70.5,43.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="70.5"
+                android:startY="54"
+                android:endX="85"
+                android:endY="54"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FFC084FC" />
+                <item android:offset="1.0" android:color="#FF7C3AED" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Left Pillar of 'A' (Electric Cyan) -->
+    <path
+        android:pathData="M54,25 L37,82 L46.5,82 L53,58 L54,52 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="37"
+                android:startY="82"
+                android:endX="54"
+                android:endY="25"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FF0284C7" />
+                <item android:offset="1.0" android:color="#FF38BDF8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Right Pillar of 'A' (Neon Violet/Purple) -->
+    <path
+        android:pathData="M54,25 L71,82 L61.5,82 L55,58 L54,52 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="71"
+                android:startY="82"
+                android:endX="54"
+                android:endY="25"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FF6D28D9" />
+                <item android:offset="1.0" android:color="#FFA855F7" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Horizon Cyber Laser Crossbar -->
+    <path
+        android:fillColor="#FF67E8F9"
+        android:pathData="M41,63 L67,63 L65,58 L43,58 Z" />
+    <!-- Apex Highlight Diamond -->
+    <path
+        android:fillColor="#FFE0F2FE"
+        android:pathData="M54,24 L56.5,28 L54,32 L51.5,28 Z" />
+    <!-- Center Glowing Spark Diamond -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,57 L56.5,60.5 L54,64 L51.5,60.5 Z" />
+</vector>

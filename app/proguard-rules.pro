@@ -130,7 +130,7 @@
 -keep class com.google.gson.** { *; }
 -dontwarn com.google.gson.**
 -keep class org.joni.ast.QuantifierNode { *; }
--keep class com.rk.plugin.server.Manifest.** { *; }
+-keep class com.goydevv.arseide.plugin.server.Manifest.** { *; }
 # For using GSON @Expose annotation
 -keepattributes *Annotation*
 # Gson specific classes
@@ -150,7 +150,7 @@
 # Retain generic signatures of TypeToken and its subclasses with R8 version 3.0 and higher.
 -keep,allowobfuscation,allowshrinking class com.google.gson.reflect.TypeToken
 -keep,allowobfuscation,allowshrinking class * extends com.google.gson.reflect.TypeToken
--keep class com.rk.App { *; }
+-keep class com.goydevv.arseide.App { *; }
 # Prevent proguard from stripping interface information from TypeAdapter, TypeAdapterFactory,
 # JsonSerializer, JsonDeserializer instances (so they can be used in @JsonAdapter)
 -keep class * extends com.google.gson.TypeAdapter
@@ -161,26 +161,26 @@
 -keepclassmembers,allowobfuscation class * {
   @com.google.gson.annotations.SerializedName <fields>;
 }
--keep class com.rk.plugin.server.Manifest { *; }
+-keep class com.goydevv.arseide.plugin.server.Manifest { *; }
 # Retain generic signatures of TypeToken and its subclasses with R8 version 3.0 and higher.
 -keep,allowobfuscation,allowshrinking class com.google.gson.reflect.TypeToken
 -keep,allowobfuscation,allowshrinking class * extends com.google.gson.reflect.TypeToken
 # Keep the no-args constructor of the deserialized class
--keepclassmembers class com.rk.plugin.server.Manifest {
+-keepclassmembers class com.goydevv.arseide.plugin.server.Manifest {
   <init>();
 }
--keep,allowobfuscation,allowoptimization class com.rk.plugin.server.Manifest {
+-keep,allowobfuscation,allowoptimization class com.goydevv.arseide.plugin.server.Manifest {
   @com.google.gson.annotations.SerializedName <fields>;
 }
--keep class com.rk.plugin.server.Manifest {
+-keep class com.goydevv.arseide.plugin.server.Manifest {
    <fields>;
 }
--keepclassmembers class com.rk.plugin.server.Manifest {
+-keepclassmembers class com.goydevv.arseide.plugin.server.Manifest {
  !transient <fields>;
 }
 # Keep classes and members for all models used with Gson
-#-keep class com.rk.xededitor.** { *; }
-#-keep class com.rk.plugin.** { *; }
+#-keep class com.goydevv.arseide.** { *; }
+#-keep class com.goydevv.arseide.plugin.** { *; }
 # Keep all classes that might be used by Gson
 -keepclassmembers class * {
     @com.google.gson.annotations.SerializedName <fields>;
@@ -204,34 +204,34 @@
 -keep class * extends com.google.gson.TypeAdapter { *; }
 
 
--keep class com.rk.plugin.server.** { *; }
--dontwarn com.rk.plugin.server.**
+-keep class com.goydevv.arseide.plugin.server.** { *; }
+-dontwarn com.goydevv.arseide.plugin.server.**
 
 # Skip shrinking class if it contains the xed extension point or related to extension related code
--keep @com.rk.extension.api.XedExtensionPoint class * { *; }
+-keep @com.goydevv.arseide.extension.api.XedExtensionPoint class * { *; }
 -keepclassmembers class * {
-    @com.rk.extension.api.XedExtensionPoint *;
+    @com.goydevv.arseide.extension.api.XedExtensionPoint *;
 }
 -keep class * {
-    @com.rk.extension.api.XedExtensionPoint <methods>;
-    @com.rk.extension.api.XedExtensionPoint <fields>;
+    @com.goydevv.arseide.extension.api.XedExtensionPoint <methods>;
+    @com.goydevv.arseide.extension.api.XedExtensionPoint <fields>;
 }
 
 
 # Preserve well-known classes that plugins may try to access and keep their names
--keep class com.rk.commands.** { *; }
--keep class com.rk.editor.** { *; }
--keep class com.rk.file.** { *; }
--keep class com.rk.filetree.** { *; }
--keep class com.rk.lsp.** { *; }
--keep class com.rk.runner.** { *; }
--keep class com.rk.tabs.** { *; }
--keep class com.rk.utils.** { *; }
--keep class com.rk.proot.** { *; }
--keep class com.rk.components.** { *; }
--keep class com.rk.App { *; }
--keep class com.rk.XedConstants { *; }
--keep class com.rk.extension.** { *; }
+-keep class com.goydevv.arseide.commands.** { *; }
+-keep class com.goydevv.arseide.editor.** { *; }
+-keep class com.goydevv.arseide.file.** { *; }
+-keep class com.goydevv.arseide.filetree.** { *; }
+-keep class com.goydevv.arseide.lsp.** { *; }
+-keep class com.goydevv.arseide.runner.** { *; }
+-keep class com.goydevv.arseide.tabs.** { *; }
+-keep class com.goydevv.arseide.utils.** { *; }
+-keep class com.goydevv.arseide.proot.** { *; }
+-keep class com.goydevv.arseide.components.** { *; }
+-keep class com.goydevv.arseide.App { *; }
+-keep class com.goydevv.arseide.XedConstants { *; }
+-keep class com.goydevv.arseide.extension.** { *; }
 -keep class java.io.** { *; }
 -keep class kotlin.** { *; }
 -keep class kotlinx.** { *; }

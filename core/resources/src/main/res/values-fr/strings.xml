@@ -42,11 +42,11 @@
     <string name="open">Ouvrir</string>
     <string name="permission_denied">Permission refusée</string>
     <string name="manage_storage">Gérer le stockage</string>
-    <string name="manage_storage_reason">Xed-Editor a besoin de droits pour modifier les fichiers. Autorisez l’accès à votre stockage dans le paramètre système suivant.</string>
+    <string name="manage_storage_reason">Arse IDE a besoin de droits pour modifier les fichiers. Autorisez l’accès à votre stockage dans le paramètre système suivant.</string>
     <string name="ok">OK</string>
     <string name="clone_repo">Cloner le dépôt</string>
     <string name="private_files">Fichiers privés</string>
-    <string name="private_files_desc">Fichiers privés de Xed-Editor</string>
+    <string name="private_files_desc">Fichiers privés de Arse IDE</string>
     <string name="cloning">Dépôt en cours de clonage…</string>
     <string name="error">Erreur</string>
     <string name="open_dir_desc">Ouvrir un dossier via le sélecteur de fichiers du système</string>
@@ -83,7 +83,7 @@
     <string name="light_mode">Clair</string>
     <string name="dark_mode">Sombre</string>
     <string name="theme_mode">Mode de l\'apparence</string>
-    <string name="about_desc">À propos de Xed-Editor</string>
+    <string name="about_desc">À propos de Arse IDE</string>
     <string name="version">Version</string>
     <string name="version_code">Code de version</string>
     <string name="telegram">Groupe Telegram</string>
@@ -148,7 +148,7 @@
     <string name="downloading">Téléchargement…</string>
     <string name="encoding_warning">Modifier l’encodage par défaut est fortement déconseillé, car cela peut provoquer des corruptions de fichiers. Il est fortement recommandé d’utiliser UTF-8 à moins d’en maitriser les implications et de disposer de sauvegardes.</string>
     <string name="ignore">Ignorer</string>
-    <string name="info_ext">Les extensions sont utilisées pour modifier le comportement et les fonctionnalités de Xed-Editor. Pour découvrir comment créer une extension, cliquer ici.</string>
+    <string name="info_ext">Les extensions sont utilisées pour modifier le comportement et les fonctionnalités de Arse IDE. Pour découvrir comment créer une extension, cliquer ici.</string>
     <string name="install_from_storage">Installer depuis le stockage</string>
     <string name="warning_private_dir">Le contenu de ce dossier sera supprimé si vous videz mes données ou désinstallez Xed-editor</string>
     <string name="highlighting">Coloration syntaxique</string>
@@ -195,7 +195,7 @@
     <string name="add_theme">Ajouter une apparence</string>
     <string name="unsupported_feature">Cette fonctionnalité n\'est pas disponible pour votre appareil</string>
     <string name="confirm_exit">Êtes-vous sûr de vouloir quitter ?</string>
-    <string name="tab_memory_warning">Il n\'y a pas assez de mémoire disponible pour ouvrir cet onglet. L\'ouvrir pourrait causer le crash de Xed-Editor. Voulez-vous quand même continuer ?</string>
+    <string name="tab_memory_warning">Il n\'y a pas assez de mémoire disponible pour ouvrir cet onglet. L\'ouvrir pourrait causer le crash de Arse IDE. Voulez-vous quand même continuer ?</string>
     <string name="read_mode_desc">Activer par défaut le mode lecture</string>
     <string name="acquire_wakelock">Activer le wakelock</string>
     <string name="release_wakelock">Désactiver le wakelock</string>
@@ -228,7 +228,7 @@
     <string name="strict_mode">Mode strict</string>
     <string name="strict_mode_desc">Détecter l\'accès au disque ou au réseau sur le thread principal</string>
     <string name="anr_watchdog">Surveillance ANR</string>
-    <string name="anr_watchdog_desc">Fermer Xed-Editor s\'il ne répond pas pendant plus de 5 secondes</string>
+    <string name="anr_watchdog_desc">Fermer Arse IDE s\'il ne répond pas pendant plus de 5 secondes</string>
     <string name="verbose_errors">Erreurs détaillées</string>
     <string name="verbose_errors_desc">Inclure la trace de pile dans les boîtes de dialogue d\'erreur</string>
     <string name="unsupported_file_ext">Extension de fichier non prise en charge</string>
@@ -330,7 +330,7 @@
     <string name="line_number">Numéro de ligne</string>
     <string name="search_file_folder">Chercher des fichiers dans le projet</string>
     <string name="search_code">Chercher du code dans le projet</string>
-    <string name="incompatible_theme_warning">Cette apparence n\'est pas compatible avec votre version actuelle de Xed-Editor. Voulez-vous tout de même continuer ?</string>
+    <string name="incompatible_theme_warning">Cette apparence n\'est pas compatible avec votre version actuelle de Arse IDE. Voulez-vous tout de même continuer ?</string>
     <string name="theme_install_failed">Échec d\'installation de l\'apparence</string>
     <string name="theme_id_missing">Le fichier JSON ne contient pas d\'ID d\'une apparence valide. Ajoutez-en une, s\'il vous plait, et réessayez.</string>
     <string name="theme_name_missing">Le fichier JSON ne contient pas de nom d\'une apparence valide. Ajoutez-en une, s\'il vous plait, et réessayez.</string>
@@ -389,7 +389,7 @@
     <string name="extra_key_bg">Fond des touches additionnelles</string>
     <string name="extra_key_bg_desc">Affiche l\'arrière-plan pour les touches additionnelles</string>
     <string name="actions">Actions</string>
-    <string name="enjoying_xed">Vous appréciez Xed Editor ?</string>
+    <string name="enjoying_xed">Vous appréciez Arse IDE ?</string>
     <string name="support_message">Vous avez enregistré %s fichiers et fait tourner %s fois du code avec Xed. \n\nJe suis un développeur indépendant, gardant ce logiciel libre et attentif à la vie privée. Si Xed a facilité votre travail de codage, pourriez-vous soutenir son développement ?\n\nVotre soutien m\'aidera à :\n• Développer plus rapidement des fonctionnalités \n• Gardez Xed sans publicité pour toujours\n• Réagir rapidement à des bugs</string>
     <string name="yes_support">Oui, je vais soutenir ! ❤️</string>
     <string name="not_for_me">Non merci</string>
@@ -456,8 +456,8 @@
     <string name="icon_pack_install_failed">Échec de l\'installation du pack d\'icônes</string>
     <string name="icon_pack_missing_fields">Le fichier manifest.json a des propriétés manquantes ou invalides\n%s\n\nVerifiez le fichier et réessayez.</string>
     <string name="manifest_missing">Le fichier manifest.json est manquant. Ajoutez-le et réessayez.</string>
-    <string name="outdated_extension">Cette extension a été créée pour une version antérieure de Xed-Editor. Demandez une mise-à-jour au développeur.</string>
-    <string name="outdated_client">Votre Xed-Editor est obsolète. Mettez-le à jour pour pouvoir utiliser cette extension.</string>
+    <string name="outdated_extension">Cette extension a été créée pour une version antérieure de Arse IDE. Demandez une mise-à-jour au développeur.</string>
+    <string name="outdated_client">Votre Arse IDE est obsolète. Mettez-le à jour pour pouvoir utiliser cette extension.</string>
     <string name="extension_validation_failed">Échec de la validation de l\'extension</string>
     <string name="general">Général</string>
     <string name="advanced">Avancé</string>

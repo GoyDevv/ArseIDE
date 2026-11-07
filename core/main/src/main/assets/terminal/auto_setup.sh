@@ -1,6 +1,6 @@
 # auto_setup.sh — one-time environment setup, executed inside the Ubuntu sandbox.
 #
-# Invoked by com.rk.terminal.AutoSetup on first launch (after the user agrees to Auto Setup).
+# Invoked by com.goydevv.arseide.terminal.AutoSetup on first launch (after the user agrees to Auto Setup).
 # Updates the package index, upgrades existing packages, and installs the core tools the IDE
 # needs to build/run code.
 
@@ -15,7 +15,7 @@ APT="apt-get"
 command -v apt-get >/dev/null 2>&1 || APT="apt"
 
 emit_progress 3 "Preparing setup"
-echo "Starting Xed-Editor auto setup..."
+echo "Starting Arse IDE auto setup..."
 
 emit_progress 10 "Updating package lists"
 $APT update -y 2>&1 || fail "Failed to update package lists (apt update)."
@@ -44,5 +44,5 @@ emit_progress 98 "Cleaning up"
 $APT clean 2>&1 || true
 
 emit_progress 100 "Setup finished"
-echo "Xed-Editor auto setup completed successfully."
+echo "Arse IDE auto setup completed successfully."
 printf '\n__XEDDONE__\n'

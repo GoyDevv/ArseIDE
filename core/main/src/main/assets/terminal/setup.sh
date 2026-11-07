@@ -107,7 +107,7 @@ ff02::3     ip6-allhosts"
 mkdir -p "$SANDBOX_DIR/etc"
 
 # write hostname
-printf '%s\n' "Xed-Editor" > "$SANDBOX_DIR/etc/hostname"
+printf '%s\n' "Arse IDE" > "$SANDBOX_DIR/etc/hostname"
 
 # write resolv.conf (create file if not exists, then overwrite)
 : > "$SANDBOX_DIR/etc/resolv.conf"

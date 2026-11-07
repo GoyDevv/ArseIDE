@@ -47,7 +47,7 @@
     <string name="ok">בסדר</string>
     <string name="clone_repo">שכפל מאגר</string>
     <string name="private_files">קבצים פרטיים</string>
-    <string name="private_files_desc">קבצים פרטיים של Xed-Editor</string>
+    <string name="private_files_desc">קבצים פרטיים של Arse IDE</string>
     <string name="cloning">משכפל מאגר…</string>
     <string name="installed">מותקן</string>
     <string name="app">אפלקציה</string>
@@ -71,7 +71,7 @@
     <string name="light_mode">מואר</string>
     <string name="dark_mode">כהה</string>
     <string name="about">אודות</string>
-    <string name="about_desc">אודות Xed-Editor</string>
+    <string name="about_desc">אודות Arse IDE</string>
     <string name="version">גירסא</string>
     <string name="version_code">קוד גירסא</string>
     <string name="github">גיטהאב</string>
@@ -163,7 +163,7 @@
     <string name="info">מידע</string>
     <string name="copied">הועתק</string>
     <string name="toggle_word_wrap">החלף גלישת מילים</string>
-    <string name="warning_private_dir">תוכן התיקייה הזו יימחק אם תנקה נתונים או תמחק את Xed-Editor</string>
+    <string name="warning_private_dir">תוכן התיקייה הזו יימחק אם תנקה נתונים או תמחק את Arse IDE</string>
     <string name="feature_toggles">מתגי תכונות</string>
     <string name="file_unsaved">קובץ לא נשמר</string>
     <string name="ext_desc">ניהול תוספים</string>

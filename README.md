@@ -1,138 +1,25 @@
-# XED-PRO
+# Arse IDE (`com.goydevv.arseide`)
 
-<img src="/fastlane/metadata/android/en-US/images/icon.png" alt="XED-PRO icon" width="90" height="90" align="left"/>
+**Arse IDE** is a Material You (Material 3) Android IDE for building Android (Jetpack Compose), Minecraft Java (Fabric / Forge), and **Horizon (`.hmod` / `.hnmod`)** mods directly on your device.
 
-**XED-PRO** is a complete, self-contained mobile IDE for Android. It started as a fork of the
-excellent [Xed-Editor](https://github.com/Xed-Editor/Xed-Editor) text editor, and grew into a full
-development environment: create real projects, resolve toolchains, build and run them on-device
-through a bundled Linux sandbox, and manage everything from a modern, redesigned UI.
+## Key Features
 
-![Android CI](https://github.com/GoyDevv/Xed-EditorPRO/actions/workflows/android.yml/badge.svg?event=push)
-![Download count](https://img.shields.io/github/downloads/GoyDevv/Xed-EditorPRO/total?label=Downloads)
+### 1. Horizon Mod Studio (`.hmod` / `.hnmod`)
+- **4 Starter Templates**:
+  - **Horizon Content Mod (`.hmod`, API `0.2`)**: Scaffolds `horizon-mod.toml` (`capabilities = ["registries"]`), declarative `data/<id>/horizon/{block,item,creative_tab,mob_effect,entity_type,menu}/`, and Minecraft 26.3 `assets/<id>/` & `data/<id>/` layout.
+  - **Horizon Client / Hybrid WASM Mod (`.hmod`, API `0.1` / `0.2`)**: Scaffolds a Rust `cdylib` (`wasm32-unknown-unknown`) linked against `horizon-mod-sdk` with HUD, UI screen, keybind, raycast, and storage hooks (`export_mod!`), plus 26.3 `assets/` & `data/`.
+  - **Horizon Server Gameplay WASM Mod (`.hmod`, API `0.3`)**: Scaffolds a server-side Rust WASM project (`side = "server"`, `export_server_mod!`) with `block_break`, `block_use`, `player_join`, world block manipulation, and custom commands.
+  - **Horizon Native Mixin Mod (`.hnmod`)**: Scaffolds `horizon-mixin.toml` and Rust `extern "C"` hook helpers targeting `horizon_client::game::native_hooks::Game`.
+- **Port Java / Fabric / NeoForge Mod to Horizon (`.hmod`)**:
+  - Accepts either a compiled `.jar` or an open-source Fabric/NeoForge project folder.
+  - Extracts and normalizes metadata (`[a-z0-9_]{1,64}`), upgrades 1.20/1.21 plural data paths and recipes/loot tables to Minecraft 26.3, generates `assets/<id>/items/<name>.json` model dispatches, converts Java `Registry.register(BuiltInRegistries.BLOCK/ITEM, ...)` calls to declarative `data/<id>/horizon/{block,item,creative_tab}/` JSON, and translates client/server gameplay hooks to Rust WASM (`src/lib.rs`).
+- **One-Click Validation & Deflate Packaging**:
+  - Validates `horizon-mod.toml` against Horizon's strict manifest rules and packages `<id>.hmod` / `<id>.hnmod` with no parent wrapper directory.
 
-<br clear="left"/>
+### 2. Material You (Material 3) Workspace UI
+- **Dedicated File Tree Left Drawer**: Opened exclusively from the top-left File Explorer icon button.
+- **5 Animated Bottom Navigation Fragments**: `Editor`, `Projects` (with Material 3 `ExtendedFloatingActionButton`), `Horizon`, `Git`, and `Tools & Config` with directional horizontal slide animations.
 
----
-
-## Why XED-PRO?
-
-Xed-Editor is a great editor. **XED-PRO turns it into an IDE.** Everything below is added on top of
-the original editing experience:
-
-| Capability | Xed-Editor | XED-PRO |
-| --- | :---: | :---: |
-| Syntax highlighting, LSP, multi-tab editing | ✅ | ✅ |
-| Built-in terminal | ✅ | ✅ |
-| **Create real projects from templates** | — | ✅ Android, Fabric/Forge mods, Python, Node.js, Web |
-| **Build & Run on-device** (Gradle/npm/python) | — | ✅ one-tap, headless, in a Linux sandbox |
-| **Dependency Manager** | — | ✅ install JDK/SDK/NDK/CMake/toolchains |
-| **IDE Configuration** | — | ✅ switch JDK, pin NDK, per-project Gradle options |
-| **Projects & Repositories browser** | — | ✅ |
-| **Auto-resolved template versions** | — | ✅ Fabric/Forge/Android pinned to real, current versions |
-| **Full Git workspace + GitHub integration** | basic | ✅ tabs, diffs, PRs, workflow runs |
-
-### What makes it a real IDE
-
-- **Project creation that actually builds.** Pick a template in a clean bottom sheet and get a
-  complete, buildable project — not a stub. Android projects use the same proven toolchain the app
-  itself ships with (AGP 9 / Kotlin 2.3 / Gradle 9.5) and let you choose the SDK (up to the latest
-  API, labelled with its Android version). Fabric and Forge mods resolve real, published dependency
-  versions for your chosen Minecraft version.
-- **Build & Run in a bundled Linux sandbox.** A one-tap Run button detects the project type and runs
-  it (Gradle, npm, Python, Go, Rust, static web) inside an exec-capable Ubuntu sandbox — headlessly,
-  with a live output panel and a notification you can stop from anywhere. Android builds install the
-  resulting APK for you.
-- **Toolchain management, built in.** The Dependency Manager installs JDKs, the Android SDK/NDK,
-  CMake, Node, Python and more, with a live install log. The IDE Configuration screen switches the
-  active JDK, pins an NDK to a project, and exposes per-project Gradle options (build type, log
-  level, and extra flags like `--stacktrace`).
-- **Automatic setup.** Creating an Android project kicks off a Gradle sync that downloads the exact
-  SDK platform your project targets before building, with an honest first-build heads-up.
-- **Everything, organized.** Redesigned Dependency Manager, IDE Configuration and Create Project
-  screens; a Projects & Repositories browser; import files into any folder from the file tree; and a
-  terminal that opens in your selected project.
-
----
-
-## Features
-
-- **Editor** — syntax highlighting, LSP-powered code intelligence, multi-tab editing, project-wide
-  search, fast file tree with import/copy/move.
-- **Terminal** — a real Linux (Ubuntu) environment via proot; opens in your current project.
-- **Build & Run** — project-aware Run/Sync with a live, stoppable output panel and notifications.
-- **Project templates** — Android (Jetpack Compose), Minecraft mods (Fabric & Forge), Python,
-  Node.js, and static web — all generated as complete, buildable projects.
-- **Dependency Manager & IDE Configuration** — install and switch toolchains; per-project Gradle
-  build type, log level and flags.
-- **Git & GitHub** — Code / Diff / Actions tabs, commit with title + description, open pull
-  requests, browse workflow runs, and manage the origin — all in-app.
-- **Extensions & themes**, customizable app font, and more.
-
----
-
-## Download
-
-- **Latest build (XED-PRO):** from [Actions](https://github.com/GoyDevv/Xed-EditorPRO/actions/) →
-  latest run → Artifacts → **XED-PRO**.
-- **Releases:** from [Releases](https://github.com/GoyDevv/Xed-EditorPRO/releases).
-
-[<img src="https://raw.githubusercontent.com/Kunzisoft/Github-badge/main/get-it-on-github.png" alt="Get it on GitHub" height="80">](https://github.com/GoyDevv/Xed-EditorPRO/releases/latest)
-
-XED-PRO installs **alongside** the official Xed-Editor (distinct app id and name), so you can keep
-both.
-
----
-
-## Building the project
-
-Build the **XED-PRO APK** (the standalone release build — always signed with the committed keystore
-so every build installs as an update over the previous one; installs alongside other builds):
-
-```bash
-./gradlew assemblePro
-```
-
-The APK is written to `app/build/outputs/apk/pro/`.
-
-You can also build a plain debug APK:
-
-```bash
-./gradlew assembleDebug   # -> app/build/outputs/apk/debug/app-debug.apk
-```
-
-### Build with Docker
-
-If you don't have the Android SDK or JDK installed locally:
-
-```bash
-DOCKER_BUILDKIT=1 docker build --target export-stage --output ./out .
-```
-
-The output APK is generated under `out/`.
-
----
-
-## Translations
-
-Help translate the editor! Visit [Weblate](https://hosted.weblate.org/engage/xed-editor/) to get
-started:
-
-<a href="https://hosted.weblate.org/engage/xed-editor/">
-    <img src="https://hosted.weblate.org/widgets/xed-editor/-/multi-auto.svg" alt="Translation Status">
-</a>
-
----
-
-## Community
-
-[![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/F2y8eva6e6)
-
----
-
-## Credits & license
-
-XED-PRO is a fork of [Xed-Editor](https://github.com/Xed-Editor/Xed-Editor) by the Xed-Editor
-authors — huge thanks to them for the editor foundation. XED-PRO is a **separate project**: please
-do not file XED-PRO issues on the upstream Xed-Editor repository.
-
-Licensed under the terms in [LICENSE](LICENSE).
+### 3. Android Build Cache & Phantom Process Killer Bypass
+- **Gradle Build Cache Enabled**: Default `--build-cache` and `org.gradle.caching=true` eliminate `Build cache is disabled` task warnings.
+- **Android 12+ Phantom Process Killer Bypass**: Foreground `WakeLock` + `WifiLock`, bounded Gradle/Cargo workers (`org.gradle.workers.max=2`, `CARGO_BUILD_JOBS=2`), in-process Kotlin compilation (`kotlin.compiler.execution.strategy=in-process`), and `device_config` / `settings_config_monitor_phantom_procs` helper.
