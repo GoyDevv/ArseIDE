@@ -109,7 +109,7 @@ class RunService : Service() {
                 fun pump(stream: InputStream) =
                     thread(isDaemon = true) {
                         runCatching {
-                            stream.bufferedReader(Charsets.UTF_8, 8192).forEachLine { line ->
+                            stream.bufferedReader(Charsets.UTF_8).forEachLine { line ->
                                 RunOutputState.appendLine(line)
                                 maybeUpdateNotification(label)
                             }

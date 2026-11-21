@@ -82,6 +82,141 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
+/**
+ * Scans the workspace home directory and returns recognized projects and repositories.
+ */
+object ProjectsBrowser {
+
+    data class ProjectInfo(
+        val dir: File,
+        val name: String,
+        val type: DetectedProjectType,
+        val isGitRepo: Boolean,
+        val createdAt: Long,
+        val lastEdited: Long,
+        val packageName: String?,
+        val sizeBytes: Long,
+    )
+
+    private val HEAVY =
+        setOf(".git", "node_modules", "build", ".gradle", ".idea", "dist", "out", ".dart_tool", "target")
+
+    suspend fun scan(home: File = sandboxHomeDir()): List<ProjectInfo> =
+        withContext(Dispatchers.IO) {
+            val dirs = home.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }.orEmpty()
+            dirs
+                .mapNotNull { dir ->
+                    val type = ProjectTypeDetector.detect(dir)
+                    val isGit = File(dir, ".git").exists()
+                    if (type == DetectedProjectType.UNKNOWN && !isGit) return@mapNotNull null
+                    ProjectInfo(
+                        dir = dir,
+                        name = dir.name,
+                        type = type,
+                        isGitRepo = isGit,
+                        createdAt = creationTime(dir),
+                        lastEdited = lastEditedTime(dir),
+                        packageName = readPackageName(dir),
+                        sizeBytes = dirSize(dir),
+                    )
+                }
+                .sortedByDescending { it.lastEdited }
+        }
+
+    private fun creationTime(dir: File): Long =
+        runCatching {
+                java.nio.file.Files
+                    .readAttributes(dir.toPath(), java.nio.file.attribute.BasicFileAttributes::class.java)
+                    .creationTime()
+                    .toMillis()
+            }
+            .getOrDefault(dir.lastModified())
+
+    private fun lastEditedTime(dir: File): Long {
+        var newest = dir.lastModified()
+        dir.listFiles()?.forEach { child ->
+            if (child.name in HEAVY) return@forEach
+            newest = maxOf(newest, mostRecent(child, depth = 2))
+        }
+        return newest
+    }
+
+    private fun mostRecent(file: File, depth: Int): Long {
+        var newest = file.lastModified()
+        if (depth > 0 && file.isDirectory && file.name !in HEAVY) {
+            file.listFiles()?.forEach { newest = maxOf(newest, mostRecent(it, depth - 1)) }
+        }
+        return newest
+    }
+
+    private fun readPackageName(dir: File): String? {
+        File(dir, "horizon-native.json").takeIf { it.isFile }?.let { f ->
+            runCatching {
+                val obj = JSONObject(f.readText())
+                val id = obj.optString("id", "")
+                val hooks = obj.optInt("hooks", 1)
+                if (id.isNotBlank()) return "hnmod:$id (hooks v$hooks)"
+            }
+        }
+        val gradleFiles =
+            listOf(
+                File(dir, "app/build.gradle.kts"),
+                File(dir, "app/build.gradle"),
+                File(dir, "build.gradle.kts"),
+                File(dir, "build.gradle"),
+            )
+        val appId = Regex("""applicationId\s*=?\s*["']([\w.]+)["']""")
+        val namespace = Regex("""namespace\s*=?\s*["']([\w.]+)["']""")
+        for (f in gradleFiles) {
+            if (!f.isFile) continue
+            val text = runCatching { f.readText() }.getOrNull() ?: continue
+            appId.find(text)?.groupValues?.getOrNull(1)?.let { return it }
+            namespace.find(text)?.groupValues?.getOrNull(1)?.let { return it }
+        }
+        val manifests =
+            listOf(
+                File(dir, "app/src/main/AndroidManifest.xml"),
+                File(dir, "src/main/AndroidManifest.xml"),
+                File(dir, "AndroidManifest.xml"),
+            )
+        val pkgAttr = Regex("""package\s*=\s*"([\w.]+)"""")
+        for (m in manifests) {
+            if (!m.isFile) continue
+            val text = runCatching { m.readText() }.getOrNull() ?: continue
+            pkgAttr.find(text)?.groupValues?.getOrNull(1)?.let { return it }
+        }
+        File(dir, "package.json").takeIf { it.isFile }?.let { pj ->
+            runCatching { pj.readText() }.getOrNull()?.let { text ->
+                Regex(""""name"\s*:\s*"([^"]+)"""").find(text)?.groupValues?.getOrNull(1)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun dirSize(dir: File): Long =
+        runCatching {
+                var total = 0L
+                dir.walkTopDown().onEnter { it.name !in setOf(".git", "build", ".gradle", "target", "node_modules") }.forEach {
+                    if (it.isFile) total += it.length()
+                }
+                total
+            }
+            .getOrDefault(0L)
+}
+
+private fun formatSize(bytes: Long): String {
+    val mib = bytes / 1048576.0
+    return if (mib >= 0.1 || bytes == 0L) String.format(Locale.US, "%.2f MiB", mib)
+    else String.format(Locale.US, "%.0f KiB", bytes / 1024.0)
+}
+
+private fun formatDate(millis: Long): String =
+    if (millis <= 0L) "—" else SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(millis))
+
+private fun formatRelative(millis: Long): String =
+    if (millis <= 0L) "—"
+    else DateUtils.getRelativeTimeSpanString(millis, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectsFragment(
@@ -394,6 +529,139 @@ fun ProjectsFragment(
                         }
                     },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionSheetRow(
+    icon: Int,
+    title: String,
+    subtitle: String,
+    highlight: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color =
+            if (highlight) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor =
+            if (highlight) MaterialTheme.colorScheme.onPrimaryContainer
+            else MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                painter = painterResource(icon),
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color =
+                        if (highlight) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                painter = painterResource(drawables.chevron_right),
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ProjectsBrowserSheet(onDismiss: () -> Unit, onOpenProject: (File) -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var loading by remember { mutableStateOf(true) }
+    val projects = remember { mutableStateListOf<ProjectsBrowser.ProjectInfo>() }
+
+    LaunchedEffect(Unit) {
+        loading = true
+        val result = ProjectsBrowser.scan()
+        projects.clear()
+        projects.addAll(result)
+        loading = false
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(44.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(drawables.folder_code),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(10.dp),
+                    )
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Projects",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    val pluralSuffix = if (projects.size == 1) "" else "s"
+                    Text(
+                        text =
+                            if (loading) "Scanning…"
+                            else "${projects.size} project$pluralSuffix",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            when {
+                loading ->
+                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 3.dp)
+                    }
+                projects.isEmpty() ->
+                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            "No projects found.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                else ->
+                    Column(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        projects.forEach { project ->
+                            ProjectCard(project = project, isActive = false) { onOpenProject(project.dir) }
+                        }
+                    }
             }
         }
     }
