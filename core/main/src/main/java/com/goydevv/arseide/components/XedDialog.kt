@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,13 +25,15 @@ fun XedDialog(
     val config = LocalConfiguration.current
 
     Dialog(onDismissRequest = onDismissRequest, properties = dialogProperties) {
-        GlassSurface(
+        Surface(
             modifier =
                 modifier
                     .padding(horizontal = 16.dp, vertical = 32.dp)
-                    .width((config.screenWidthDp / 1.18).dp),
-            shape = RoundedCornerShape(22.dp),
-            shadowElevation = 18.dp,
+                    .width((config.screenWidthDp / 1.16).dp),
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 6.dp,
+            shadowElevation = 6.dp,
         ) {
             Box(contentAlignment = Alignment.Center) {
                 content()

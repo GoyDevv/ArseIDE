@@ -6,8 +6,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Binder
+import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.compose.runtime.mutableStateListOf
@@ -21,9 +25,13 @@ import com.goydevv.arseide.resources.strings
 import com.goydevv.arseide.settings.Settings
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
-import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class SessionService : Service() {
@@ -32,6 +40,11 @@ class SessionService : Service() {
     val sessionList = mutableStateListOf<String>()
     var currentSession = mutableStateOf("main")
     private var deamonRunning = false
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var keepAliveJob: Job? = null
+
+    var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     @SuppressLint("WakelockTimeout")
     inner class SessionBinder : Binder() {
@@ -39,26 +52,31 @@ class SessionService : Service() {
             return this@SessionService
         }
 
-        fun createSession(id: SessionId, client: TerminalSessionClient, activity: Terminal): SessionInfo {
-            // Auto-acquire wakeLock when a terminal session is created to prevent Android Phantom Process Killer
-            runCatching {
-                if (wakeLock?.isHeld == false) {
-                    wakeLock?.acquire()
-                }
-            }
+        fun createSession(
+            id: SessionId,
+            client: TerminalSessionClient,
+            activity: Terminal,
+            explicitWorkingDir: String? = null,
+        ): SessionInfo {
+            acquireBackgroundLocks()
+            startKeepAliveLoop()
+            val uniqueId = resolveUniqueSessionId(id)
             return MkSession.createSession(
                     activity,
                     client,
-                    id,
+                    uniqueId,
                     activity.installNextStage != null && activity.installNextStage == NEXT_STAGE.EXTRACTION,
+                    explicitWorkingDir = explicitWorkingDir,
                 )
                 .let {
                     val (session, pwd) = it
-                    sessions[id] = session
-                    sessionWorkDirs[id] = pwd
-                    sessionList.add(id)
+                    sessions[uniqueId] = session
+                    sessionWorkDirs[uniqueId] = pwd
+                    if (!sessionList.contains(uniqueId)) {
+                        sessionList.add(uniqueId)
+                    }
                     updateNotification()
-                    SessionInfo(id, pwd, session)
+                    SessionInfo(uniqueId, pwd, session)
                 }
         }
 
@@ -67,15 +85,16 @@ class SessionService : Service() {
         }
 
         fun getSessionInfoByPwd(pwd: SessionPwd): SessionInfo? {
-            return sessionWorkDirs.keys
-                .find { sessionWorkDirs[it] == pwd }
-                ?.let { SessionInfo(it, sessionWorkDirs[it]!!, sessions[it]!!) }
+            val normalized = pwd.trimEnd('/')
+            return sessionWorkDirs.entries
+                .firstOrNull { (_, dir) -> dir.trimEnd('/') == normalized }
+                ?.let { (id, dir) -> sessions[id]?.let { SessionInfo(id, dir, it) } }
         }
 
         fun terminateSession(id: SessionId) {
             sessions[id]?.apply {
                 if (emulator != null) {
-                    sessions[id]?.finishIfRunning()
+                    finishIfRunning()
                 }
             }
             sessions.remove(id)
@@ -83,17 +102,24 @@ class SessionService : Service() {
             sessionWorkDirs.remove(id)
 
             if (sessions.isEmpty()) {
-                if (wakeLock?.isHeld == true) {
-                    runCatching { wakeLock?.release() }
-                }
+                stopKeepAliveLoop()
+                releaseBackgroundLocks()
                 stopSelf()
-                if (deamonRunning) {
-                    deamonRunning = false
-                }
+                deamonRunning = false
             } else {
                 updateNotification()
             }
         }
+    }
+
+    private fun resolveUniqueSessionId(requested: String): String {
+        val base = requested.ifBlank { "session" }
+        if (!sessions.containsKey(base)) return base
+        var idx = 2
+        while (sessions.containsKey("$base ($idx)")) {
+            idx++
+        }
+        return "$base ($idx)"
     }
 
     private val binder = SessionBinder()
@@ -105,11 +131,10 @@ class SessionService : Service() {
 
     override fun onDestroy() {
         sessions.forEach { s -> s.value.finishIfRunning() }
-
         deamonRunning = false
-        if (wakeLock?.isHeld == true) {
-            runCatching { wakeLock?.release() }
-        }
+        stopKeepAliveLoop()
+        releaseBackgroundLocks()
+        serviceScope.cancel()
         super.onDestroy()
     }
 
@@ -117,58 +142,116 @@ class SessionService : Service() {
         super.onTaskRemoved(rootIntent)
         if (Settings.terminate_sessions_on_exit || AutoSetupState.isActive) {
             actionExit()
+        } else if (sessions.isNotEmpty()) {
+            acquireBackgroundLocks()
+            updateNotification()
         }
     }
 
     @SuppressLint("WakelockTimeout")
-    @OptIn(DelicateCoroutinesApi::class)
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         val notification = createNotification()
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
-                1,
+                NOTIFICATION_ID,
                 notification,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
             )
         } else {
-            startForeground(1, notification)
+            startForeground(NOTIFICATION_ID, notification)
         }
 
-        if (deamonRunning.not()) {
-            GlobalScope.launch(Dispatchers.IO) {
+        if (!deamonRunning) {
+            serviceScope.launch {
                 deamonRunning = true
                 PhantomKillerBypass.ensureProtected(applicationContext)
             }
         }
 
-        if (wakeLock == null) {
-            wakeLock =
-                (getSystemService(POWER_SERVICE) as PowerManager)
-                    .newWakeLock(
-                        PowerManager.PARTIAL_WAKE_LOCK,
-                        "ArseIDE::SessionWakeLock",
-                    )
-                    .apply { setReferenceCounted(false) }
-        }
+        acquireBackgroundLocks()
+        startKeepAliveLoop()
+    }
+
+    @SuppressLint("WakelockTimeout")
+    private fun acquireBackgroundLocks() {
         runCatching {
+            if (wakeLock == null) {
+                wakeLock =
+                    (getSystemService(POWER_SERVICE) as PowerManager)
+                        .newWakeLock(
+                            PowerManager.PARTIAL_WAKE_LOCK,
+                            "ArseIDE::SessionWakeLock",
+                        )
+                        .apply { setReferenceCounted(false) }
+            }
             if (wakeLock?.isHeld == false) {
                 wakeLock?.acquire()
             }
         }
+        runCatching {
+            if (wifiLock == null) {
+                val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                @Suppress("DEPRECATION")
+                val mode =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                    } else {
+                        WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                    }
+                wifiLock =
+                    wm?.createWifiLock(mode, "ArseIDE::SessionWifiLock")?.apply {
+                        setReferenceCounted(false)
+                    }
+            }
+            if (wifiLock?.isHeld == false) {
+                wifiLock?.acquire()
+            }
+        }
     }
 
-    var wakeLock: PowerManager.WakeLock? = null
+    private fun releaseBackgroundLocks() {
+        runCatching {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+        }
+        runCatching {
+            if (wifiLock?.isHeld == true) {
+                wifiLock?.release()
+            }
+        }
+    }
+
+    private fun startKeepAliveLoop() {
+        if (keepAliveJob?.isActive == true) return
+        keepAliveJob =
+            serviceScope.launch {
+                while (isActive) {
+                    delay(25_000L)
+                    if (sessions.isNotEmpty()) {
+                        if (wakeLock?.isHeld == false || wifiLock?.isHeld == false) {
+                            acquireBackgroundLocks()
+                        }
+                    }
+                }
+            }
+    }
+
+    private fun stopKeepAliveLoop() {
+        keepAliveJob?.cancel()
+        keepAliveJob = null
+    }
 
     fun actionExit() {
         sessions.forEach { s -> s.value.finishIfRunning() }
-        if (deamonRunning) {
-            deamonRunning = false
-        }
-        if (wakeLock?.isHeld == true) {
-            runCatching { wakeLock?.release() }
-        }
+        sessions.clear()
+        sessionList.clear()
+        sessionWorkDirs.clear()
+        deamonRunning = false
+        stopKeepAliveLoop()
+        releaseBackgroundLocks()
         stopSelf()
     }
 
@@ -177,18 +260,24 @@ class SessionService : Service() {
         when (intent?.action) {
             "ACTION_EXIT" -> {
                 actionExit()
+                return START_NOT_STICKY
             }
 
             "ACTION_WAKE_LOCK" -> {
                 if (wakeLock?.isHeld == true) {
-                    wakeLock?.release()
+                    releaseBackgroundLocks()
                 } else {
-                    wakeLock?.acquire()
+                    acquireBackgroundLocks()
                 }
                 updateNotification()
             }
+
+            else -> {
+                acquireBackgroundLocks()
+                startKeepAliveLoop()
+            }
         }
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     private fun createNotification(): Notification {
@@ -218,16 +307,20 @@ class SessionService : Service() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
 
+        val locksActive = wakeLock?.isHeld == true
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("${strings.app_name.getString()} ${strings.terminal.getString()}")
-            .setContentText(getNotificationContentText(wakeLock?.isHeld == true))
+            .setContentText(getNotificationContentText(locksActive))
             .setSmallIcon(drawables.terminal)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(pendingIntent)
             .addAction(NotificationCompat.Action.Builder(null, strings.exit.getString(), exitPendingIntent).build())
             .addAction(
                 NotificationCompat.Action.Builder(
                         null,
-                        if (wakeLock?.isHeld == true) {
+                        if (locksActive) {
                             strings.release_wakelock.getString()
                         } else {
                             strings.acquire_wakelock.getString()
@@ -240,33 +333,34 @@ class SessionService : Service() {
             .build()
     }
 
-    private val CHANNEL_ID = "session_service_channel"
-
     private fun createNotificationChannel() {
         val channel =
-            NotificationChannel(CHANNEL_ID, "Session Service", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Notification for Terminal Service"
+            NotificationChannel(CHANNEL_ID, "Terminal Background Sessions", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "Keeps terminal sessions and AI agents active in the background"
             }
         notificationManager.createNotificationChannel(channel)
     }
 
     private fun updateNotification() {
         runCatching {
-                val notification = createNotification()
-                notificationManager.notify(1, notification)
-            }
-            .onFailure { it.printStackTrace() }
+            val notification = createNotification()
+            notificationManager.notify(NOTIFICATION_ID, notification)
+        }
     }
 
     private fun getNotificationContentText(wakelock: Boolean): String {
         val count = sessions.size
-        return "$count sessions running ${
-            if (wakelock) {
-                "(wake lock held)"
-            } else {
-                ""
-            }
-        }"
+        val suffix = if (count == 1) "session" else "sessions"
+        return if (wakelock) {
+            "$count $suffix active · Background keep-alive on"
+        } else {
+            "$count $suffix active"
+        }
+    }
+
+    companion object {
+        private const val NOTIFICATION_ID = 1
+        private const val CHANNEL_ID = "session_service_channel"
     }
 }
 

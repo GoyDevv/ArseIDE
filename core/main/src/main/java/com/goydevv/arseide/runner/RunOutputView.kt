@@ -58,7 +58,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.blankj.utilcode.util.ClipboardUtils
-import com.goydevv.arseide.components.GlassSurface
+import androidx.compose.foundation.BorderStroke
+import com.goydevv.arseide.components.ExpressiveSurface
 import com.goydevv.arseide.resources.drawables
 import com.goydevv.arseide.resources.strings
 import com.goydevv.arseide.utils.toast
@@ -77,7 +78,7 @@ private fun latestLineStyle() =
     MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 14.sp, letterSpacing = 0.sp)
 
 /**
- * Floating glassmorphic build/run view shown at the bottom of the editor while a background build runs.
+ * Floating Material 3 Expressive build/run sheet shown at the bottom of the editor while a background build runs.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -111,7 +112,7 @@ fun RunOutputView(modifier: Modifier = Modifier) {
             else -> MaterialTheme.colorScheme.error
         }
 
-    GlassSurface(
+    ExpressiveSurface(
         modifier =
             modifier
                 .fillMaxWidth()
@@ -123,8 +124,10 @@ fun RunOutputView(modifier: Modifier = Modifier) {
                 bottomStart = corner,
                 bottomEnd = corner,
             ),
-        shadowElevation = 12.dp,
-        accentGlow = accentGlow,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 4.dp,
+        shadowElevation = 4.dp,
+        border = BorderStroke(1.dp, accentGlow.copy(alpha = 0.55f)),
     ) {
         Column(
             modifier =

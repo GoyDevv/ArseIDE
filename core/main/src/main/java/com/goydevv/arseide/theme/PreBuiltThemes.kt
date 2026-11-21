@@ -166,10 +166,10 @@ val blueberry =
             },
     )
 
-val obsidianGlass =
+val obsidianExpressive =
     ThemeHolder(
-        id = "obsidian-glass",
-        name = "Obsidian Glass (PRO)",
+        id = "obsidian-expressive",
+        name = "Obsidian Expressive",
         inheritBase = true,
         lightScheme =
             lightColorScheme(
@@ -414,4 +414,4 @@ val lime =
             },
     )
 
-val builtInThemes = listOf(blueberry, obsidianGlass, lime)
+val builtInThemes = listOf(blueberry, obsidianExpressive, lime)

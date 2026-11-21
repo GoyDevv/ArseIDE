@@ -5,30 +5,27 @@ import android.content.Intent
 import androidx.core.content.FileProvider
 import java.io.File
 
-/**
- * Installs an APK produced by an Android build. Locates the freshly built APK (debug or release)
- * under the project's real path, copies it somewhere the app's FileProvider can serve (external
- * files dir, covered by file_paths' external-path), and fires the system package installer.
- *
- * The user still confirms the install in the system dialog (and grants "install unknown apps" the
- * first time) — this is the on-device equivalent of Android Studio's install-and-run.
- */
 object ApkInstaller {
 
-    /** Newest APK under the standard Gradle output locations (any build variant), or null. */
     fun findApk(projectRealPath: String): File? {
         val roots =
             listOf(
                 File(projectRealPath, "app/build/outputs/apk"),
                 File(projectRealPath, "build/outputs/apk"),
             )
-        return roots
-            .filter { it.isDirectory }
-            .flatMap { root -> root.walkTopDown().filter { f -> f.isFile && f.extension.equals("apk", true) }.toList() }
-            .maxByOrNull { it.lastModified() }
+        val allApks =
+            roots
+                .filter { it.isDirectory }
+                .flatMap { root -> root.walkTopDown().filter { f -> f.isFile && f.extension.equals("apk", true) }.toList() }
+        if (allApks.isEmpty()) return null
+        val newest = allApks.maxByOrNull { it.lastModified() } ?: return null
+        val recentSigned =
+            allApks
+                .filter { it.name.endsWith("-signed.apk", ignoreCase = true) && newest.lastModified() - it.lastModified() <= 15_000L }
+                .maxByOrNull { it.lastModified() }
+        return recentSigned ?: newest
     }
 
-    /** Best-effort: find and launch the installer for the project's built APK. Never throws. */
     fun install(context: Context, projectRealPath: String): Boolean {
         return runCatching {
                 val apk = findApk(projectRealPath) ?: return false

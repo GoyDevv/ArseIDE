@@ -30,6 +30,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -56,6 +57,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -70,6 +72,7 @@ import com.goydevv.arseide.activities.settings.SettingsRoutes
 import com.goydevv.arseide.activities.terminal.Terminal
 import com.goydevv.arseide.animations.NavigationAnimationTransitions
 import com.goydevv.arseide.editor.FontCache
+import com.goydevv.arseide.exec.PhantomKillerBypass
 import com.goydevv.arseide.exec.pendingCommand
 import com.goydevv.arseide.file.child
 import com.goydevv.arseide.file.sandboxDir
@@ -147,11 +150,31 @@ fun TerminalScreenInternal(modifier: Modifier = Modifier, terminalActivity: Term
             content = {
                 Scaffold(
                     topBar = {
+                        val ctx = LocalContext.current
+                        var batteryExempt by remember {
+                            mutableStateOf(PhantomKillerBypass.isBatteryOptimizationIgnored(ctx))
+                        }
+                        LaunchedEffect(terminalActivity.pendingCwd, terminalActivity.sessionBinder) {
+                            terminalActivity.consumePendingCwdIfReady()
+                        }
                         TopAppBar(
                             title = { Text(text = stringResource(strings.terminal)) },
                             navigationIcon = {
                                 IconButton(onClick = { scope.launch { drawerState.open() } }) {
                                     Icon(Icons.Default.Menu, null)
+                                }
+                            },
+                            actions = {
+                                if (!batteryExempt) {
+                                    FilledTonalButton(
+                                        onClick = {
+                                            PhantomKillerBypass.requestIgnoreBatteryOptimizations(ctx)
+                                            batteryExempt = PhantomKillerBypass.isBatteryOptimizationIgnored(ctx)
+                                        },
+                                        modifier = Modifier.padding(end = 8.dp),
+                                    ) {
+                                        Text("Keep Alive")
+                                    }
                                 }
                             },
                         )
@@ -269,22 +292,26 @@ private fun ColumnScope.TerminalView(
                 // Captured before MkSession consumes (nulls) pendingCommand below.
                 val pendingId = pendingCommand?.id
 
+                val binder = terminalActivity.sessionBinder?.get()!!
+                val requestedCwd = terminalActivity.pendingCwd
                 val session =
                     if (pendingCommand != null) {
-                        terminalActivity.sessionBinder?.get()!!.getService().currentSession.value = pendingCommand!!.id
-                        terminalActivity.sessionBinder?.get()!!.getSession(pendingCommand!!.id)
-                            ?: terminalActivity.sessionBinder
-                                ?.get()!!
-                                .createSession(pendingCommand!!.id, client, terminalActivity)
-                                .session
+                        binder.getService().currentSession.value = pendingCommand!!.id
+                        binder.getSession(pendingCommand!!.id)
+                            ?: binder.createSession(pendingCommand!!.id, client, terminalActivity).session
+                    } else if (!requestedCwd.isNullOrBlank()) {
+                        terminalActivity.pendingCwd = null
+                        val cwdId = java.io.File(requestedCwd).name.ifBlank { "project" }
+                        val info =
+                            binder.getSessionInfoByPwd(requestedCwd)
+                                ?: binder.createSession(cwdId, client, terminalActivity, explicitWorkingDir = requestedCwd)
+                        binder.getService().currentSession.value = info.id
+                        terminalActivity.intent?.removeExtra("cwd")
+                        info.session
                     } else {
-                        terminalActivity.sessionBinder
-                            ?.get()!!
-                            .getSession(terminalActivity.sessionBinder?.get()!!.getService().currentSession.value)
-                            ?: terminalActivity.sessionBinder
-                                ?.get()!!
-                                .createSession(
-                                    terminalActivity.sessionBinder?.get()!!.getService().currentSession.value,
+                        binder.getSession(binder.getService().currentSession.value)
+                            ?: binder.createSession(
+                                    binder.getService().currentSession.value,
                                     client,
                                     terminalActivity,
                                 )

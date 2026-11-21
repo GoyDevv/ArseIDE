@@ -38,8 +38,8 @@ import com.goydevv.arseide.resources.strings
 import com.goydevv.arseide.settings.app.InbuiltFeatures
 
 @Composable
-fun SettingsScreen(navController: NavController) {
-    PreferenceLayout(label = stringResource(id = strings.settings), backArrowVisible = true) {
+fun SettingsScreen(navController: NavController, backArrowVisible: Boolean = true) {
+    PreferenceLayout(label = stringResource(id = strings.settings), backArrowVisible = backArrowVisible) {
         Categories(navController)
     }
 }

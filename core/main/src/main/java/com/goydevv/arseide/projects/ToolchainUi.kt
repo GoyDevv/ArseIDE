@@ -281,7 +281,6 @@ internal fun ToolchainMessage(icon: Int, message: String, tint: Color = Color.Un
 
 internal fun iconForProjectType(type: DetectedProjectType): Int =
     when (type) {
-        DetectedProjectType.HORIZON_MIXIN_MOD -> drawables.extension
         DetectedProjectType.FABRIC_MOD,
         DetectedProjectType.FORGE_MOD -> drawables.java
         DetectedProjectType.ANDROID -> drawables.android

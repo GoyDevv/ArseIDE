@@ -27,13 +27,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
-/**
- * Foreground service that runs a project build/run **headlessly** inside the sandbox (via
- * [ubuntuProcess]) — no terminal screen is shown. Output is streamed into [RunOutputState] for the
- * editor's floating view, and a progress notification (with a Stop action) lets the user follow and
- * cancel the build from anywhere. Holds a partial WakeLock + WifiLock and runs
- * [PhantomKillerBypass.ensureProtected] so Android 12+ Phantom Process Killer never kills the build.
- */
 class RunService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val notificationManager by lazy { getSystemService(NotificationManager::class.java) }
@@ -65,7 +58,7 @@ class RunService : Service() {
                     }
             }
             if (wakeLock?.isHeld == false) {
-                wakeLock?.acquire(60 * 60 * 1000L) // up to 60 min max build safety
+                wakeLock?.acquire(60 * 60 * 1000L)
             }
             if (wifiLock == null) {
                 val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
@@ -107,28 +100,17 @@ class RunService : Service() {
         stopped = false
 
         scope.launch {
-            val sb = StringBuilder()
-            val lock = Any()
             try {
-                // Apply Phantom Process Killer bypass / protection before spawning sandbox build
                 PhantomKillerBypass.ensureProtected(applicationContext)
 
                 val p = ubuntuProcess(workingDir = workingDir, command = args.toList())
                 proc = p
 
                 fun pump(stream: InputStream) =
-                    thread {
+                    thread(isDaemon = true) {
                         runCatching {
-                            stream.bufferedReader().forEachLine { line ->
-                                // Filter out noisy Gradle --info build-cache disabled lines
-                                if (
-                                    line.trim() == "Build cache is disabled" ||
-                                        line.trim().startsWith("Caching disabled for task ")
-                                ) {
-                                    return@forEachLine
-                                }
-                                synchronized(lock) { sb.appendLine(line) }
-                                RunOutputState.onOutput(sb.toString())
+                            stream.bufferedReader(Charsets.UTF_8, 8192).forEachLine { line ->
+                                RunOutputState.appendLine(line)
                                 maybeUpdateNotification(label)
                             }
                         }
@@ -139,7 +121,7 @@ class RunService : Service() {
                 val exit = p.waitFor()
                 t1.join()
                 t2.join()
-                RunOutputState.onOutput(sb.toString())
+                RunOutputState.flush()
                 if (stopped) {
                     RunOutputState.onFinished(-1)
                     runCatching { notificationManager.cancel(NOTIFICATION_ID) }
@@ -152,8 +134,8 @@ class RunService : Service() {
                     showResultNotification(label, exit)
                 }
             } catch (e: Exception) {
-                synchronized(lock) { sb.appendLine("Error: ${e.message}") }
-                RunOutputState.onOutput(sb.toString())
+                RunOutputState.appendLine("Error: ${e.message}")
+                RunOutputState.flush()
                 RunOutputState.onFinished(-1)
                 if (stopped) runCatching { notificationManager.cancel(NOTIFICATION_ID) }
                 else showResultNotification(label, -1)
@@ -190,7 +172,7 @@ class RunService : Service() {
 
     private fun maybeUpdateNotification(label: String) {
         val now = System.currentTimeMillis()
-        if (now - lastNotifyAt < 700) return
+        if (now - lastNotifyAt < 900L) return
         lastNotifyAt = now
         runCatching {
             notificationManager.notify(
@@ -238,6 +220,8 @@ class RunService : Service() {
             .setContentTitle(label)
             .setContentText(text)
             .setSmallIcon(drawables.run)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(contentIntent())
             .setOnlyAlertOnce(true)
             .setOngoing(ongoing)

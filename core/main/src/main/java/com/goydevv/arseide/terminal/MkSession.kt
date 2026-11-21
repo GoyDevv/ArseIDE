@@ -2,6 +2,7 @@ package com.goydevv.arseide.terminal
 
 import android.app.Activity
 import android.content.Context
+import com.goydevv.arseide.BuildConfig
 import com.goydevv.arseide.activities.main.MainActivity
 import com.goydevv.arseide.exec.pendingCommand
 import com.goydevv.arseide.file.FileWrapper
@@ -10,12 +11,13 @@ import com.goydevv.arseide.file.localBinDir
 import com.goydevv.arseide.file.localDir
 import com.goydevv.arseide.file.localLibDir
 import com.goydevv.arseide.file.sandboxHomeDir
+import com.goydevv.arseide.filetree.FileTreeTab
+import com.goydevv.arseide.runner.ProjectRunner
 import com.goydevv.arseide.settings.Settings
 import com.goydevv.arseide.tabs.editor.EditorTab
 import com.goydevv.arseide.utils.application
 import com.goydevv.arseide.utils.getSourceDirOfPackage
 import com.goydevv.arseide.utils.getTempDir
-import com.goydevv.arseide.BuildConfig
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
 import java.io.File
@@ -28,6 +30,7 @@ object MkSession {
         sessionClient: TerminalSessionClient,
         sessionId: String,
         isExtraction: Boolean = false,
+        explicitWorkingDir: String? = null,
     ): Pair<TerminalSession, SessionPwd> {
         val envVariables =
             mapOf(
@@ -43,7 +46,7 @@ object MkSession {
                 "PATH" to "${System.getenv("PATH")}:${localBinDir(context).absolutePath}",
             )
 
-        val workingDir = runBlocking { getPwd(context) }
+        val workingDir = explicitWorkingDir?.takeIf { it.isNotBlank() } ?: runBlocking { getPwd(context) }
 
         val tmpDir = File(getTempDir(), "terminal/$sessionId")
 
@@ -68,9 +71,9 @@ object MkSession {
                 "PRIVATE_DIR=${context.filesDir.parentFile!!.absolutePath}",
                 "LD_LIBRARY_PATH=${localLibDir(context).absolutePath}",
                 "EXT_HOME=${sandboxHomeDir(context)}",
-                "HOME=${if (Settings.sandbox){ "/home"} else{ sandboxHomeDir(context)}}",
+                "HOME=${if (Settings.sandbox) "/home" else sandboxHomeDir(context)}",
                 "PROMPT_DIRTRIM=2",
-                "LINKER=${if(File("/system/bin/linker64").exists()){"/system/bin/linker64"}else{"/system/bin/linker"}}",
+                "LINKER=${if (File("/system/bin/linker64").exists()) "/system/bin/linker64" else "/system/bin/linker"}",
                 "NATIVE_LIB_DIR=${context.applicationInfo.nativeLibraryDir}",
                 "SANDBOX=${Settings.sandbox}",
                 "TMP_DIR=${getTempDir()}",
@@ -78,7 +81,7 @@ object MkSession {
                 "TZ=UTC",
                 "DOTNET_GCHeapHardLimit=1C0000000",
                 "SOURCE_DIR=${context.applicationInfo.sourceDir}",
-                "TERMUX_X11_SOURCE_DIR=${getSourceDirOfPackage(application!!,"com.termux.x11")}",
+                "TERMUX_X11_SOURCE_DIR=${getSourceDirOfPackage(application!!, "com.termux.x11")}",
                 "DISPLAY=:0",
             )
 
@@ -118,7 +121,7 @@ object MkSession {
             } else {
                 args =
                     mutableListOf(sandboxSH.absolutePath, pendingCommand!!.exe, *pendingCommand!!.args)
-                        .toTypedArray<String>()
+                        .toTypedArray()
 
                 "/system/bin/sh"
             }
@@ -146,44 +149,51 @@ object MkSession {
     }
 }
 
+private fun normalizeToTerminalPath(context: Context, absolutePath: String): String {
+    if (!Settings.sandbox) return absolutePath
+    val sandboxHomePrefix = sandboxHomeDir(context).absolutePath
+    if (absolutePath == sandboxHomePrefix) return "/home"
+    if (absolutePath.startsWith("$sandboxHomePrefix/")) {
+        return "/home" + absolutePath.removePrefix(sandboxHomePrefix)
+    }
+    val localPrefix = localDir(context).absolutePath
+    if (absolutePath.startsWith(localPrefix)) {
+        return absolutePath.removePrefix(localPrefix).ifEmpty { "/home" }
+    }
+    return ProjectRunner.toSandboxPath(absolutePath)
+}
+
 suspend fun getPwd(context: Context): String {
     val pendingWorkingDir = pendingCommand?.workingDir
-    if (pendingWorkingDir != null) {
+    if (!pendingWorkingDir.isNullOrBlank()) {
         return pendingWorkingDir
     }
 
     if (context is Activity && context.intent.hasExtra("cwd")) {
-        return context.intent.getStringExtra("cwd").toString()
+        val explicit = context.intent.getStringExtra("cwd")
+        if (!explicit.isNullOrBlank()) {
+            return normalizeToTerminalPath(context, explicit)
+        }
     }
 
-    val currentTab = MainActivity.instance?.viewModel?.tabManager?.currentTab
-    if (Settings.project_as_pwd) {
-        currentTab?.let {
-            if (it is EditorTab && it.file is FileWrapper) {
-                val parent = it.file.getParentFile()
-                if (parent != null && parent is FileWrapper) {
-                    return if (Settings.sandbox) {
-                        parent.getAbsolutePath().removePrefix(localDir(context).absolutePath)
-                    } else {
-                        parent.getAbsolutePath()
-                    }
-                }
-            }
+    val mainActivity = MainActivity.instance
+    val drawerRoot = (mainActivity?.drawerViewModel?.currentDrawerTab as? FileTreeTab)?.root
+    if (drawerRoot is FileWrapper) {
+        return normalizeToTerminalPath(context, drawerRoot.getAbsolutePath())
+    }
+
+    val currentTab = mainActivity?.viewModel?.tabManager?.currentTab
+    if (currentTab is EditorTab && currentTab.file is FileWrapper) {
+        val projectRoot = ProjectRunner.resolveProjectRootPath(currentTab.projectRoot, currentTab.file)
+        if (!projectRoot.isNullOrBlank()) {
+            return normalizeToTerminalPath(context, projectRoot)
         }
-    } else {
-        currentTab?.let {
-            if (it is EditorTab && it.file is FileWrapper) {
-                val parent = it.file.getParentFile()
-                if (parent != null && parent is FileWrapper) {
-                    return if (Settings.sandbox) {
-                        parent.getAbsolutePath().removePrefix(localDir(context).absolutePath)
-                    } else {
-                        parent.getAbsolutePath()
-                    }
-                }
-            }
+        val parent = currentTab.file.getParentFile()
+        if (parent is FileWrapper) {
+            return normalizeToTerminalPath(context, parent.getAbsolutePath())
         }
     }
+
     return if (Settings.sandbox) {
         "/home"
     } else {

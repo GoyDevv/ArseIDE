@@ -82,7 +82,7 @@ fun GlobalToolbarActions(viewModel: MainViewModel, drawerViewModel: DrawerViewMo
             val rootPathStr = projectRoot.getAbsolutePath()
             val detectedType = ProjectRunner.detect(rootPathStr)
 
-            // Sync button for Android projects
+            
             if (!RunOutputState.isRunning && detectedType == DetectedProjectType.ANDROID) {
                 IconButton(
                     onClick = {
@@ -96,7 +96,7 @@ fun GlobalToolbarActions(viewModel: MainViewModel, drawerViewModel: DrawerViewMo
                 }
             }
 
-            // Primary Run / Build / Package .hmod button
+            
             if (RunOutputState.isRunning || ProjectRunner.canRun(rootPathStr)) {
                 FilledTonalIconButton(
                     onClick = {
@@ -127,7 +127,7 @@ fun GlobalToolbarActions(viewModel: MainViewModel, drawerViewModel: DrawerViewMo
                 }
             }
 
-            // When no editor tabs are open, also show quick Toolchain & Terminal icons
+            
             if (viewModel.tabs.isEmpty()) {
                 IconButton(
                     onClick = { com.goydevv.arseide.projects.IdeConfigState.open(File(rootPathStr)) },

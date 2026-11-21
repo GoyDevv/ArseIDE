@@ -1,16 +1,21 @@
 # project_runner.sh — background build & run script inside the Ubuntu sandbox.
 #
 # Args:
-#   $1 = project type   (HORIZON_MIXIN_MOD, PYTHON, NODE, FABRIC_MOD, FORGE_MOD, GRADLE, ANDROID, SYNC, RUST, GO, WEB)
-#   $2 = project dir     (absolute path)
-#   $3 = entry file      (optional)
-#   $4 = gradle args     (optional)
-#   $5 = build type      (debug|release)
+#   $1  = project type   (PYTHON, NODE, FABRIC_MOD, FORGE_MOD, GRADLE, ANDROID, SYNC, RUST, GO, WEB)
+#   $2  = project dir    (absolute path)
+#   $3  = entry file     (optional)
+#   $4  = gradle args    (optional)
+#   $5  = build type     (debug|release)
+#   $6  = sign mode      (arseide_default|custom|unsigned)
+#   $7  = sign keystore  (sandbox path)
+#   $8  = sign alias
+#   $9  = sign store pass
+#   $10 = sign key pass
 
 source "$LOCAL/bin/utils"
 
 export DEBIAN_FRONTEND=noninteractive
-export GRADLE_OPTS="${GRADLE_OPTS:--Xmx1536m -Dfile.encoding=UTF-8 -Dorg.gradle.caching=true -Dorg.gradle.workers.max=2 -Dkotlin.compiler.execution.strategy=in-process}"
+export GRADLE_OPTS="${GRADLE_OPTS:--Xmx1024m -XX:MaxMetaspaceSize=384m -XX:+UseG1GC -XX:+UseStringDeduplication -XX:SoftRefLRUPolicyMSPerMB=1 -Dfile.encoding=UTF-8 -Dorg.gradle.caching=true -Dorg.gradle.workers.max=2 -Dorg.gradle.vfs.watch=false -Dkotlin.compiler.execution.strategy=in-process}"
 export CARGO_BUILD_JOBS=2
 export RAYON_NUM_THREADS=2
 export MAKEFLAGS="-j2"
@@ -20,6 +25,11 @@ PROJECT_DIR="${2:-$PWD}"
 ENTRY="${3:-}"
 GRADLE_ARGS="${4:---build-cache}"
 BUILD_TYPE="${5:-debug}"
+SIGN_MODE="${6:-unsigned}"
+SIGN_KEYSTORE="${7:-}"
+SIGN_ALIAS="${8:-}"
+SIGN_STORE_PASS="${9:-}"
+SIGN_KEY_PASS="${10:-}"
 
 enter_dir() {
   cd "$1" 2>/dev/null && return 0
@@ -41,6 +51,7 @@ info "Type    : $TYPE"
 case "$TYPE" in
   FABRIC_MOD | FORGE_MOD | GRADLE | ANDROID | SYNC)
     info "Build   : $BUILD_TYPE"
+    [ "$TYPE" = "ANDROID" ] && info "Signing : $SIGN_MODE"
     [ -n "$GRADLE_ARGS" ] && info "Gradle  : $GRADLE_ARGS"
     ;;
 esac
@@ -67,17 +78,21 @@ ensure_gradle_cache_config() {
   mkdir -p "$HOME/.gradle"
   local gp="$HOME/.gradle/gradle.properties"
   touch "$gp"
-  if ! grep -q '^org\.gradle\.caching=' "$gp" 2>/dev/null; then
-    printf '\norg.gradle.caching=true\n' >> "$gp"
-  else
-    sed -i 's|^org\.gradle\.caching=.*|org.gradle.caching=true|' "$gp"
-  fi
-  if ! grep -q '^org\.gradle\.workers\.max=' "$gp" 2>/dev/null; then
-    printf 'org.gradle.workers.max=2\n' >> "$gp"
-  fi
-  if ! grep -q '^kotlin\.compiler\.execution\.strategy=' "$gp" 2>/dev/null; then
-    printf 'kotlin.compiler.execution.strategy=in-process\n' >> "$gp"
-  fi
+  local props=(
+    "org.gradle.caching=true"
+    "org.gradle.workers.max=2"
+    "org.gradle.vfs.watch=false"
+    "kotlin.compiler.execution.strategy=in-process"
+    "org.gradle.jvmargs=-Xmx1024m -XX:MaxMetaspaceSize=384m -XX:+UseG1GC -XX:+UseStringDeduplication -Dfile.encoding=UTF-8"
+  )
+  for kv in "${props[@]}"; do
+    local k="${kv%%=*}"
+    if grep -q "^${k//./\\.}=" "$gp" 2>/dev/null; then
+      sed -i "s|^${k//./\\.}=.*|${kv}|" "$gp"
+    else
+      printf '\n%s\n' "$kv" >> "$gp"
+    fi
+  done
 }
 
 ensure_project_jdk() {
@@ -122,10 +137,10 @@ run_gradlew() {
   ensure_gradle_cache_config
   chmod +x ./gradlew 2>/dev/null
   if [ -x ./gradlew ]; then
-    ./gradlew --build-cache -Dorg.gradle.caching=true -Dorg.gradle.workers.max=2 "$@" 2>&1 | grep -vE "Caching disabled for task|Build cache is disabled"
+    ./gradlew --build-cache -Dorg.gradle.caching=true -Dorg.gradle.workers.max=2 -Dorg.gradle.vfs.watch=false "$@" 2>&1 | grep -vE "Caching disabled for task|Build cache is disabled"
     return "${PIPESTATUS[0]}"
   else
-    bash ./gradlew --build-cache -Dorg.gradle.caching=true -Dorg.gradle.workers.max=2 "$@" 2>&1 | grep -vE "Caching disabled for task|Build cache is disabled"
+    bash ./gradlew --build-cache -Dorg.gradle.caching=true -Dorg.gradle.workers.max=2 -Dorg.gradle.vfs.watch=false "$@" 2>&1 | grep -vE "Caching disabled for task|Build cache is disabled"
     return "${PIPESTATUS[0]}"
   fi
 }
@@ -176,7 +191,7 @@ ensure_android_sdk() {
 
   if [ ! -x "$SDKM" ] || [ ! -d "$ANDROID_HOME/platform-tools" ]; then
     info "Downloading Android SDK command-line tools ..."
-    apt-get update -y && apt-get install -y wget curl unzip aapt openjdk-17-jdk openjdk-21-jdk || {
+    apt-get update -y && apt-get install -y wget curl unzip aapt apksigner zipalign openjdk-17-jdk openjdk-21-jdk || {
       error "Could not install prerequisites (wget/unzip/aapt/JDK)."
       cd "$proj" 2>/dev/null
       return 1
@@ -249,44 +264,115 @@ ensure_android_sdk() {
   return 0
 }
 
-# --- per-type dispatch -----------------------------------------------------
+sign_built_apk() {
+  local raw_apk="$1"
+  if [ "$SIGN_MODE" = "unsigned" ] || [ -z "$SIGN_MODE" ]; then
+    info "Signing mode is Gradle Default / Unsigned; keeping Gradle output APK."
+    return 0
+  fi
+
+  if [ "$SIGN_MODE" = "arseide_default" ]; then
+    SIGN_KEYSTORE="${SIGN_KEYSTORE:-$HOME/.arseide/signing/arseide-default.keystore}"
+    SIGN_ALIAS="${SIGN_ALIAS:-arseide}"
+    SIGN_STORE_PASS="${SIGN_STORE_PASS:-arseide2026}"
+    SIGN_KEY_PASS="${SIGN_KEY_PASS:-arseide2026}"
+    if [ ! -f "$SIGN_KEYSTORE" ]; then
+      info "Generating default ArseIDE Signing Keystore at $SIGN_KEYSTORE ..."
+      mkdir -p "$(dirname "$SIGN_KEYSTORE")"
+      keytool -genkeypair -noprompt \
+        -keystore "$SIGN_KEYSTORE" \
+        -storetype PKCS12 \
+        -alias "$SIGN_ALIAS" \
+        -keyalg RSA -keysize 2048 \
+        -validity 10000 \
+        -storepass "$SIGN_STORE_PASS" \
+        -keypass "$SIGN_KEY_PASS" \
+        -dname "CN=ArseIDE, OU=MobileDev, O=ArseIDE, L=Local, S=Local, C=US" || {
+        error "Failed to generate default ArseIDE Signing Keystore."
+        return 1
+      }
+    fi
+  fi
+
+  if [ ! -f "$SIGN_KEYSTORE" ]; then
+    error "Signing keystore not found: $SIGN_KEYSTORE"
+    return 1
+  fi
+
+  local apk_dir
+  apk_dir="$(dirname "$raw_apk")"
+  local apk_base
+  apk_base="$(basename "$raw_apk" .apk)"
+  apk_base="${apk_base%-unsigned}"
+  apk_base="${apk_base%-signed}"
+  local aligned_apk="${apk_dir}/${apk_base}-aligned.apk"
+  local signed_apk="${apk_dir}/${apk_base}-signed.apk"
+
+  local ZIPALIGN_BIN=""
+  ZIPALIGN_BIN="$(ls -1 "$ANDROID_HOME"/build-tools/*/zipalign 2>/dev/null | sort -V | tail -1)"
+  [ -z "$ZIPALIGN_BIN" ] && command_exists zipalign && ZIPALIGN_BIN="$(command -v zipalign)"
+
+  local input_for_sign="$raw_apk"
+  if [ -n "$ZIPALIGN_BIN" ] && [ -x "$ZIPALIGN_BIN" ]; then
+    info "Aligning APK with zipalign ..."
+    if "$ZIPALIGN_BIN" -f -p 4 "$raw_apk" "$aligned_apk" 2>&1; then
+      input_for_sign="$aligned_apk"
+    else
+      warn "zipalign failed; signing unaligned APK."
+    fi
+  fi
+
+  local APKSIGNER_BIN=""
+  APKSIGNER_BIN="$(ls -1 "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)"
+  [ -z "$APKSIGNER_BIN" ] && command_exists apksigner && APKSIGNER_BIN="$(command -v apksigner)"
+
+  if [ -z "$APKSIGNER_BIN" ]; then
+    info "Installing apksigner ..."
+    apt-get update -y >/dev/null 2>&1 && apt-get install -y apksigner >/dev/null 2>&1 || true
+    command_exists apksigner && APKSIGNER_BIN="$(command -v apksigner)"
+  fi
+
+  if [ -n "$APKSIGNER_BIN" ] && [ -x "$APKSIGNER_BIN" ]; then
+    info "Signing APK with apksigner (alias: $SIGN_ALIAS) ..."
+    "$APKSIGNER_BIN" sign \
+      --ks "$SIGN_KEYSTORE" \
+      --ks-key-alias "$SIGN_ALIAS" \
+      --ks-pass "pass:$SIGN_STORE_PASS" \
+      --key-pass "pass:$SIGN_KEY_PASS" \
+      --out "$signed_apk" \
+      "$input_for_sign" || {
+      error "apksigner failed. Check keystore path, alias, and passwords."
+      rm -f "$aligned_apk"
+      return 1
+    }
+    rm -f "$aligned_apk"
+    info "Verifying APK signature ..."
+    "$APKSIGNER_BIN" verify --print-certs "$signed_apk" 2>&1 || true
+    info "Signed APK ready: $signed_apk"
+    return 0
+  elif command_exists jarsigner; then
+    info "Signing APK with jarsigner (alias: $SIGN_ALIAS) ..."
+    cp "$input_for_sign" "$signed_apk"
+    jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
+      -keystore "$SIGN_KEYSTORE" \
+      -storepass "$SIGN_STORE_PASS" \
+      -keypass "$SIGN_KEY_PASS" \
+      "$signed_apk" "$SIGN_ALIAS" || {
+      error "jarsigner failed. Check keystore path, alias, and passwords."
+      rm -f "$aligned_apk" "$signed_apk"
+      return 1
+    }
+    rm -f "$aligned_apk"
+    info "Signed APK ready: $signed_apk"
+    return 0
+  else
+    error "Neither apksigner nor jarsigner is available to sign the APK."
+    rm -f "$aligned_apk"
+    return 1
+  fi
+}
 
 case "$TYPE" in
-  HORIZON_MIXIN_MOD)
-    need python3 "Python 3"
-    # Check companion crate with cargo check if present
-    for cargo_manifest in mixins/*/engine/Cargo.toml; do
-      if [ -f "$cargo_manifest" ]; then
-        if command_exists cargo; then
-          info "Compiling companion crate ($cargo_manifest) with cargo check ..."
-          cargo check --manifest-path "$cargo_manifest" || {
-            show_result $?
-            exit 1
-          }
-        elif command_exists rustc; then
-          lib_rs="$(dirname "$cargo_manifest")/src/lib.rs"
-          if [ -f "$lib_rs" ]; then
-            info "Checking companion crate ($lib_rs) with rustc ..."
-            rustc --crate-type lib --emit=metadata -o /tmp/hnmod_engine.rmeta "$lib_rs" || {
-              show_result $?
-              exit 1
-            }
-            rm -f /tmp/hnmod_engine.rmeta
-          fi
-        fi
-      fi
-    done
-
-    if [ -f tools/validate_and_pack_hnmod.py ]; then
-      info "Validating & packaging Horizon .hnmod bundle ..."
-      python3 tools/validate_and_pack_hnmod.py .
-      show_result $?
-    else
-      error "tools/validate_and_pack_hnmod.py not found in project."
-      show_result 1
-    fi
-    ;;
-
   PYTHON)
     need python3 "Python 3"
     target="$ENTRY"
@@ -359,10 +445,13 @@ case "$TYPE" in
     run_gradlew "$ASSEMBLE_TASK" $GRADLE_ARGS
     code=$?
     if [ "$code" -eq 0 ]; then
-      apk="$(ls -t "app/build/outputs/apk/$OUT_DIR"/*.apk "build/outputs/apk/$OUT_DIR"/*.apk 2>/dev/null | head -n1)"
+      apk="$(ls -t "app/build/outputs/apk/$OUT_DIR"/*.apk "build/outputs/apk/$OUT_DIR"/*.apk 2>/dev/null | grep -v -- '-aligned\.apk$' | head -n1)"
       if [ -n "$apk" ]; then
         apk_abs="$(cd "$(dirname "$apk")" 2>/dev/null && pwd)/$(basename "$apk")"
         info "APK built: $apk_abs"
+        if ! sign_built_apk "$apk_abs"; then
+          code=1
+        fi
       else
         warn "Build succeeded, no APK found under app/build/outputs/apk/$OUT_DIR/."
       fi

@@ -31,7 +31,7 @@ import com.goydevv.arseide.settings.Settings
 
 /**
  * When true the modal drawer (file tree / git / etc.) is maximized to the full screen width.
- * Toggled by the expand button in the drawer's top glass header. Read by [getDrawerWidth] so every
+ * Toggled by the expand button in the drawer header. Read by [getDrawerWidth] so every
  * width-dependent piece of the drawer stays in sync.
  */
 var isDrawerExpanded by mutableStateOf(false)
@@ -76,7 +76,7 @@ fun ResponsiveDrawer(
                 PermanentDrawerSheet(
                     windowInsets = if (fullscreen) WindowInsets() else DrawerDefaults.windowInsets,
                     drawerShape = RectangleShape,
-                    drawerContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                    drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                     content = sheetContent,
                 )
             },
@@ -97,7 +97,7 @@ fun ResponsiveDrawer(
                     windowInsets = if (fullscreen) WindowInsets() else DrawerDefaults.windowInsets,
                     modifier = Modifier.width(getDrawerWidth()),
                     drawerShape = sheetShape,
-                    drawerContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                    drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                     content = sheetContent,
                 )
             },

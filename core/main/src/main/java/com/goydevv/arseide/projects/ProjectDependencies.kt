@@ -3,9 +3,6 @@ package com.goydevv.arseide.projects
 import com.goydevv.arseide.exec.ShellUtils
 import com.goydevv.arseide.exec.TerminalCommand
 
-/**
- * Detects and installs the toolchain a project needs.
- */
 object ProjectDependencies {
 
     data class Tool(val name: String, val checkCmd: String, val aptPackages: List<String>)
@@ -14,16 +11,6 @@ object ProjectDependencies {
         when (config.template) {
             ProjectTemplate.NONE,
             ProjectTemplate.WEB -> emptyList()
-            ProjectTemplate.HORIZON_GAMEPLAY_HNMOD,
-            ProjectTemplate.HORIZON_HUD_COMMAND_HNMOD,
-            ProjectTemplate.HORIZON_CRATE_ENGINE_HNMOD ->
-                listOf(
-                    Tool(
-                        "Rust & cargo",
-                        "command -v cargo >/dev/null 2>&1 && command -v rustc >/dev/null 2>&1",
-                        listOf("cargo", "rustc", "python3"),
-                    )
-                )
             ProjectTemplate.PYTHON3 ->
                 listOf(
                     Tool(

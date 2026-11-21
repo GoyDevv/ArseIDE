@@ -2,24 +2,19 @@ package com.goydevv.arseide.projects
 
 import java.io.File
 
-/** A project kind inferred from files on disk. */
 enum class DetectedProjectType(val label: String) {
+    ANDROID("Android app"),
     FABRIC_MOD("Fabric mod"),
     FORGE_MOD("Forge / NeoForge mod"),
-    ANDROID("Android app"),
     GRADLE("Gradle (JVM)"),
     NODE("Node.js"),
     PYTHON("Python"),
     WEB("Static web"),
     RUST("Rust"),
     GO("Go"),
-    HORIZON_MIXIN_MOD("Horizon Native Mod (.hnmod)"),
     UNKNOWN("Unknown"),
 }
 
-/**
- * Inspects marker files in [root] to identify the project type.
- */
 object ProjectTypeDetector {
 
     fun detect(root: File): DetectedProjectType {
@@ -28,12 +23,6 @@ object ProjectTypeDetector {
         fun has(rel: String) = File(root, rel).exists()
         fun topLevel(predicate: (File) -> Boolean) = root.listFiles()?.any { it.isFile && predicate(it) } == true
 
-        // Horizon Native Mod (.hnmod)
-        if (has("horizon-native.json") || has("horizon-mixin.toml") || File(root, "mixins").isDirectory) {
-            return DetectedProjectType.HORIZON_MIXIN_MOD
-        }
-
-        // Minecraft Java mods
         if (has("src/main/resources/fabric.mod.json") || has("fabric.mod.json")) {
             return DetectedProjectType.FABRIC_MOD
         }
@@ -46,7 +35,6 @@ object ProjectTypeDetector {
             return DetectedProjectType.FORGE_MOD
         }
 
-        // Android
         val gradleFiles = listOf("build.gradle", "build.gradle.kts", "app/build.gradle", "app/build.gradle.kts")
         val hasAndroidPlugin =
             gradleFiles.any { rel ->
@@ -60,7 +48,6 @@ object ProjectTypeDetector {
             return DetectedProjectType.ANDROID
         }
 
-        // Generic Gradle (JVM)
         if (
             has("build.gradle") ||
                 has("build.gradle.kts") ||

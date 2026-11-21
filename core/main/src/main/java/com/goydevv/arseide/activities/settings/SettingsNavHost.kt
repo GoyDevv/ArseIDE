@@ -1,5 +1,6 @@
 package com.goydevv.arseide.activities.settings
 
+import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -8,6 +9,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.goydevv.arseide.App
 import com.goydevv.arseide.animations.NavigationAnimationTransitions
+import com.goydevv.arseide.file.FileManager
 import com.goydevv.arseide.lsp.LspRegistry
 import com.goydevv.arseide.settings.SettingsScreen
 import com.goydevv.arseide.settings.about.AboutScreen
@@ -42,7 +44,12 @@ import com.goydevv.arseide.settings.terminal.TerminalExtraKeys
 import com.goydevv.arseide.settings.theme.ThemeScreen
 
 @Composable
-fun SettingsNavHost(navController: NavHostController, activity: SettingsActivity) {
+fun SettingsNavHost(
+    navController: NavHostController,
+    activity: ComponentActivity,
+    fileManager: FileManager,
+    showRootBackArrow: Boolean = true,
+) {
     NavHost(
         navController = navController,
         startDestination = SettingsRoutes.Settings.route,
@@ -51,8 +58,12 @@ fun SettingsNavHost(navController: NavHostController, activity: SettingsActivity
         popEnterTransition = { NavigationAnimationTransitions.popEnterTransition },
         popExitTransition = { NavigationAnimationTransitions.popExitTransition },
     ) {
-        composable(SettingsRoutes.Settings.route) { SettingsScreen(navController) }
-        composable(SettingsRoutes.AppSettings.route) { SettingsAppScreen(activity, navController) }
+        composable(SettingsRoutes.Settings.route) {
+            SettingsScreen(navController, backArrowVisible = showRootBackArrow)
+        }
+        composable(SettingsRoutes.AppSettings.route) {
+            SettingsAppScreen(activity, fileManager, navController)
+        }
         composable(SettingsRoutes.EditorSettings.route) { SettingsEditorScreen(navController) }
         composable(SettingsRoutes.Keybindings.route) { KeybindingsScreen() }
         composable(SettingsRoutes.TerminalSettings.route) { SettingsTerminalScreen() }

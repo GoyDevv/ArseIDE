@@ -7,15 +7,24 @@ import android.os.Build
 import android.os.Environment
 import android.os.storage.StorageManager
 import androidx.activity.compose.ManagedActivityResultLauncher
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -49,24 +58,31 @@ fun AddProjectSheet(
 
     val viewModel = activity.drawerViewModel
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.Companion.padding(start = 16.dp, end = 16.dp, bottom = 16.dp, top = 0.dp)) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(
+            modifier =
+                Modifier.verticalScroll(rememberScrollState())
+                    .padding(start = 16.dp, end = 16.dp, bottom = 24.dp, top = 0.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = "Add or Open Project",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+            Spacer(Modifier.height(4.dp))
+
             AddDialogItem(
                 icon = Icon.ResourceIcon(drawables.folder_code),
                 title = stringResource(strings.create_project),
                 description = stringResource(strings.create_project_desc),
                 onClick = {
                     showCreateProject()
-                    onDismiss()
-                },
-            )
-
-            AddDialogItem(
-                icon = Icon.ResourceIcon(drawables.folder),
-                title = "Projects & Repositories",
-                description = "Browse and open your existing projects",
-                onClick = {
-                    showProjects()
                     onDismiss()
                 },
             )
@@ -81,17 +97,29 @@ fun AddProjectSheet(
                 },
             )
 
-            // Open Path option
+            if (InbuiltFeatures.git.state.value) {
+                AddDialogItem(
+                    icon = Icon.ResourceIcon(drawables.git),
+                    title = stringResource(strings.clone_repo),
+                    description = stringResource(strings.clone_repo_desc),
+                    onClick = {
+                        showGitCloneDialog()
+                        onDismiss()
+                    },
+                )
+            }
+
             val is11Plus = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
             val isManager = is11Plus && Environment.isExternalStorageManager()
-            val legacyPermission =
-                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) !=
-                    PackageManager.PERMISSION_GRANTED ||
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+            val legacyGranted =
+                !is11Plus &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) ==
+                        PackageManager.PERMISSION_GRANTED &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
                         PackageManager.PERMISSION_GRANTED
 
             val storage = Environment.getExternalStorageDirectory()
-            if ((isManager || (!is11Plus && legacyPermission)) && storage.canWrite() && storage.canRead()) {
+            if ((isManager || legacyGranted) && storage.canWrite() && storage.canRead()) {
                 AddDialogItem(
                     icon = Icon.ResourceIcon(drawables.android),
                     title = stringResource(strings.internal_storage),
@@ -146,20 +174,6 @@ fun AddProjectSheet(
                 )
             }
 
-            // Clone repository option
-            if (InbuiltFeatures.git.state.value) {
-                AddDialogItem(
-                    icon = Icon.ResourceIcon(drawables.git),
-                    title = stringResource(strings.clone_repo),
-                    description = stringResource(strings.clone_repo_desc),
-                    onClick = {
-                        showGitCloneDialog()
-                        onDismiss()
-                    },
-                )
-            }
-
-            // Terminal Home option
             AddDialogItem(
                 icon = Icon.ResourceIcon(drawables.terminal),
                 title = stringResource(strings.terminal_home),

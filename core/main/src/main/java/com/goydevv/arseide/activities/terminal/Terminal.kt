@@ -91,6 +91,7 @@ import okhttp3.Request
 
 class Terminal : AppCompatActivity() {
     var sessionBinder by mutableStateOf<WeakReference<SessionService.SessionBinder>?>(null)
+    var pendingCwd by mutableStateOf<String?>(null)
     var isBound = false
 
     val serviceConnection =
@@ -120,27 +121,40 @@ class Terminal : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        handleIntent(intent)
     }
 
     override fun onResume() {
         super.onResume()
         instance = this
+        intent?.getStringExtra("cwd")?.takeIf { it.isNotBlank() }?.let { pendingCwd = it }
+        consumePendingCwdIfReady()
     }
 
     fun handleIntent(intent: Intent) {
         this.intent = intent
+        val pwd = intent.getStringExtra("cwd")?.takeIf { it.isNotBlank() }
+        if (pwd != null) {
+            pendingCwd = pwd
+        }
+        consumePendingCwdIfReady()
+    }
+
+    fun consumePendingCwdIfReady() {
+        val pwd = pendingCwd ?: return
         val binder = sessionBinder?.get() ?: return
         terminalView.get() ?: return
-
-        val pwd = intent.getStringExtra("cwd") ?: return
-        val sessionId = File(pwd).name
+        pendingCwd = null
+        val sessionId = File(pwd).name.ifBlank { "project" }
 
         lifecycleScope.launch(Dispatchers.Main) {
             val client = TerminalBackEnd()
-            val info = binder.getSessionInfoByPwd(pwd) ?: binder.createSession(sessionId, client, this@Terminal)
+            val info =
+                binder.getSessionInfoByPwd(pwd)
+                    ?: binder.createSession(sessionId, client, this@Terminal, explicitWorkingDir = pwd)
 
             this@Terminal.changeSession(info.id)
-            setIntent(Intent())
+            intent?.removeExtra("cwd")
         }
     }
 

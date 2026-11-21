@@ -1,6 +1,5 @@
 package com.goydevv.arseide.components
 
-import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -30,7 +29,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -40,7 +38,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -53,58 +50,33 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/**
- * Hardware-accelerated RenderEffect blur on Android 12+ when [radius] > 0.dp.
- */
-fun Modifier.backdropBlur(radius: Dp): Modifier =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && radius > 0.dp) {
-        this.blur(radius = radius)
-    } else {
-        this
-    }
-
-/**
- * Clean Material You (Material 3) tonal surface container.
- */
 @Composable
-fun GlassSurface(
+fun ExpressiveSurface(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(20.dp),
-    tonalAlpha: Float = 1f,
-    shadowElevation: Dp = 2.dp,
-    accentGlow: Color? = null,
+    shape: Shape = RoundedCornerShape(24.dp),
+    containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
+    tonalElevation: Dp = 1.dp,
+    shadowElevation: Dp = 0.dp,
+    border: BorderStroke? = null,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val scheme = MaterialTheme.colorScheme
-    val containerColor =
-        if (accentGlow != null) {
-            scheme.primaryContainer.copy(alpha = tonalAlpha.coerceIn(0f, 1f))
-        } else {
-            scheme.surfaceContainer.copy(alpha = tonalAlpha.coerceIn(0f, 1f))
-        }
-    val borderColor =
-        accentGlow?.copy(alpha = 0.55f) ?: scheme.outlineVariant.copy(alpha = 0.45f)
-
     Surface(
         modifier = modifier,
         shape = shape,
         color = containerColor,
-        tonalElevation = 2.dp,
-        shadowElevation = shadowElevation.coerceAtMost(4.dp),
-        border = BorderStroke(1.dp, borderColor),
+        tonalElevation = tonalElevation,
+        shadowElevation = shadowElevation,
+        border = border,
     ) {
         Box(modifier = Modifier.padding(contentPadding), content = content)
     }
 }
 
-/**
- * Interactive Material You card with subtle spring press feedback and tonal border.
- */
 @Composable
-fun GlassCard(
+fun ExpressiveCard(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(20.dp),
+    shape: Shape = RoundedCornerShape(24.dp),
     selected: Boolean = false,
     enabled: Boolean = true,
     onClick: (() -> Unit)? = null,
@@ -115,9 +87,9 @@ fun GlassCard(
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by
         animateFloatAsState(
-            targetValue = if (isPressed && enabled) 0.98f else 1f,
-            animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
-            label = "m3CardScale",
+            targetValue = if (isPressed && enabled) 0.97f else 1f,
+            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+            label = "expressiveCardScale",
         )
     val scheme = MaterialTheme.colorScheme
 
@@ -133,7 +105,6 @@ fun GlassCard(
                     if (onClick != null) {
                         Modifier.clip(shape).clickable(
                             interactionSource = interactionSource,
-                            indication = null,
                             enabled = enabled,
                             onClick = onClick,
                         )
@@ -143,21 +114,14 @@ fun GlassCard(
                 ),
         shape = shape,
         color = if (selected) scheme.secondaryContainer else scheme.surfaceContainerLow,
-        tonalElevation = if (selected) 4.dp else 1.dp,
-        border =
-            BorderStroke(
-                width = if (selected) 1.5.dp else 1.dp,
-                color = if (selected) scheme.primary else scheme.outlineVariant.copy(alpha = 0.4f),
-            ),
+        tonalElevation = if (selected) 2.dp else 0.dp,
+        border = if (selected) BorderStroke(1.5.dp, scheme.primary) else null,
     ) {
         Box(modifier = Modifier.padding(contentPadding), content = content)
     }
 }
 
-/**
- * Data model for an item in the Material You bottom navigation bar.
- */
-data class GlassNavDestination(
+data class ExpressiveNavDestination(
     val id: String,
     val label: String,
     val iconRes: Int? = null,
@@ -166,18 +130,13 @@ data class GlassNavDestination(
     val selected: Boolean = false,
     val enabled: Boolean = true,
     val badgeCount: Int = 0,
-    val isAccentAction: Boolean = false,
     val onClick: () -> Unit,
     val onLongClick: (() -> Unit)? = null,
 )
 
-/**
- * Expressive Material You (Material 3) bottom navigation bar with spring-animated pill indicators,
- * crisp tonal hierarchy, and badge counters.
- */
 @Composable
-fun GlassBottomNavigationBar(
-    items: List<GlassNavDestination>,
+fun ExpressiveBottomNavigationBar(
+    items: List<ExpressiveNavDestination>,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
 ) {
@@ -187,18 +146,13 @@ fun GlassBottomNavigationBar(
         modifier = modifier.fillMaxWidth(),
         color = scheme.surfaceContainer,
         contentColor = scheme.onSurface,
-        tonalElevation = 3.dp,
-        shadowElevation = 6.dp,
+        tonalElevation = 2.dp,
     ) {
         Column(modifier = Modifier.fillMaxWidth().navigationBarsPadding()) {
-            HorizontalDivider(
-                thickness = 0.5.dp,
-                color = scheme.outlineVariant.copy(alpha = 0.42f),
-            )
             Row(
                 modifier =
                     Modifier.fillMaxWidth()
-                        .height(if (compact) 62.dp else 72.dp)
+                        .height(if (compact) 64.dp else 74.dp)
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
@@ -208,44 +162,42 @@ fun GlassBottomNavigationBar(
                     val isPressed by interactionSource.collectIsPressedAsState()
                     val itemScale by
                         animateFloatAsState(
-                            targetValue =
-                                when {
-                                    isPressed -> 0.92f
-                                    item.selected -> 1.0f
-                                    else -> 0.98f
-                                },
-                            animationSpec = spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMedium),
-                            label = "navItemScale_${item.id}",
+                            targetValue = if (isPressed) 0.92f else 1f,
+                            animationSpec =
+                                spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMedium,
+                                ),
+                            label = "navScale_${item.id}",
                         )
                     val pillWidth by
                         animateDpAsState(
-                            targetValue = if (item.selected) 60.dp else 36.dp,
-                            animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMedium),
-                            label = "navPillWidth_${item.id}",
+                            targetValue = if (item.selected) 64.dp else 32.dp,
+                            animationSpec =
+                                spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMediumLow,
+                                ),
+                            label = "navPill_${item.id}",
                         )
                     val pillColor by
                         animateColorAsState(
-                            targetValue =
-                                if (item.selected) scheme.secondaryContainer
-                                else Color.Transparent,
+                            targetValue = if (item.selected) scheme.secondaryContainer else Color.Transparent,
                             animationSpec = tween(180),
                             label = "navPillColor_${item.id}",
                         )
                     val iconTint by
                         animateColorAsState(
                             targetValue =
-                                if (item.selected) scheme.onSecondaryContainer
-                                else scheme.onSurfaceVariant,
+                                if (item.selected) scheme.onSecondaryContainer else scheme.onSurfaceVariant,
                             animationSpec = tween(180),
-                            label = "navIconTint_${item.id}",
+                            label = "navIcon_${item.id}",
                         )
                     val labelColor by
                         animateColorAsState(
-                            targetValue =
-                                if (item.selected) scheme.onSurface
-                                else scheme.onSurfaceVariant,
+                            targetValue = if (item.selected) scheme.onSurface else scheme.onSurfaceVariant,
                             animationSpec = tween(180),
-                            label = "navLabelColor_${item.id}",
+                            label = "navLabel_${item.id}",
                         )
 
                     Column(
@@ -255,7 +207,7 @@ fun GlassBottomNavigationBar(
                                     scaleX = itemScale
                                     scaleY = itemScale
                                 }
-                                .clip(RoundedCornerShape(16.dp))
+                                .clip(RoundedCornerShape(18.dp))
                                 .combinedClickable(
                                     interactionSource = interactionSource,
                                     indication = null,
@@ -279,8 +231,8 @@ fun GlassBottomNavigationBar(
                                 badge = {
                                     if (item.badgeCount > 0) {
                                         Badge(
-                                            containerColor = scheme.primary,
-                                            contentColor = scheme.onPrimary,
+                                            containerColor = scheme.error,
+                                            contentColor = scheme.onError,
                                         ) {
                                             Text(if (item.badgeCount > 99) "99+" else item.badgeCount.toString())
                                         }
@@ -294,20 +246,20 @@ fun GlassBottomNavigationBar(
                                             painter = painterResource(item.iconRes),
                                             contentDescription = item.label,
                                             tint = iconTint,
-                                            modifier = Modifier.size(21.dp),
+                                            modifier = Modifier.size(22.dp),
                                         )
                                     item.iconVector != null ->
                                         Icon(
                                             imageVector = item.iconVector,
                                             contentDescription = item.label,
                                             tint = iconTint,
-                                            modifier = Modifier.size(21.dp),
+                                            modifier = Modifier.size(22.dp),
                                         )
                                 }
                             }
                         }
 
-                        Spacer(Modifier.height(3.dp))
+                        Spacer(Modifier.height(4.dp))
 
                         Text(
                             text = item.label,
@@ -324,11 +276,8 @@ fun GlassBottomNavigationBar(
     }
 }
 
-/**
- * Material You segmented selector for tab sub-views (e.g. Git Code / Diff / Actions).
- */
 @Composable
-fun GlassSegmentedControl(
+fun ExpressiveSegmentedControl(
     options: List<String>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
@@ -339,9 +288,8 @@ fun GlassSegmentedControl(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(50),
         color = scheme.surfaceContainerHigh,
-        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.4f)),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(4.dp),
@@ -366,20 +314,20 @@ fun GlassSegmentedControl(
                 Surface(
                     modifier =
                         Modifier.weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(50))
                             .clickable { onSelect(index) },
                     color = bg,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(50),
                 ) {
                     Row(
-                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
+                        modifier = Modifier.padding(vertical = 9.dp, horizontal = 8.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             text = title,
                             style = MaterialTheme.typography.labelLarge,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             color = fg,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,

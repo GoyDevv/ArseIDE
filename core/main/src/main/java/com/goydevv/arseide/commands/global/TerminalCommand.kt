@@ -25,27 +25,20 @@ class TerminalCommand : GlobalCommand() {
     override fun action(actionContext: ActionContext) {
         val activity = actionContext.currentActivity
         val intent = Intent(activity, Terminal::class.java)
-        // When opening a brand-new terminal, start it in the current project/file directory using
-        // the same resolution the Run button uses, instead of always defaulting to the sandbox
-        // home. If a terminal session is already open it is reused as before and this is ignored.
         currentProjectDir()?.let { intent.putExtra("cwd", it) }
         activity.startActivity(intent)
     }
 
-    /** The current editor tab's project directory, or the drawer-selected folder, as a sandbox path. */
     private fun currentProjectDir(): String? {
         val activity = MainActivity.instance ?: return null
-        // 1. An editor tab is open — use its project/file directory (same as the Run button).
+        val drawerRoot = (activity.drawerViewModel.currentDrawerTab as? FileTreeTab)?.root
+        if (drawerRoot is FileWrapper) {
+            return ProjectRunner.toSandboxPath(drawerRoot.getAbsolutePath())
+        }
         (activity.viewModel.tabManager?.currentTab as? EditorTab)?.let { tab ->
             ProjectRunner.resolveProjectRootPath(tab.projectRoot, tab.file)?.let {
                 return ProjectRunner.toSandboxPath(it)
             }
-        }
-        // 2. No file open — fall back to the directory selected in the drawer's file tree, so the
-        //    terminal still opens in the project instead of the sandbox home.
-        val drawerRoot = (activity.drawerViewModel.currentDrawerTab as? FileTreeTab)?.root
-        if (drawerRoot is FileWrapper) {
-            return ProjectRunner.toSandboxPath(drawerRoot.getAbsolutePath())
         }
         return null
     }

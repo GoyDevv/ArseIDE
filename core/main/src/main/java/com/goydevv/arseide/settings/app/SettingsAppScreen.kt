@@ -21,7 +21,8 @@ import androidx.core.net.toUri
 import androidx.navigation.NavController
 import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
-import com.goydevv.arseide.activities.settings.SettingsActivity
+import androidx.activity.ComponentActivity
+import com.goydevv.arseide.file.FileManager
 import com.goydevv.arseide.activities.settings.SettingsRoutes
 import com.goydevv.arseide.components.BasicToggle
 import com.goydevv.arseide.components.NextScreenCard
@@ -71,7 +72,7 @@ object InbuiltFeatures {
 }
 
 @Composable
-fun SettingsAppScreen(activity: SettingsActivity, navController: NavController) {
+fun SettingsAppScreen(activity: ComponentActivity, fileManager: FileManager, navController: NavController) {
     PreferenceLayout(label = stringResource(id = strings.app), backArrowVisible = true) {
         val scope = rememberCoroutineScope()
         val gson = remember { GsonBuilder().setPrettyPrinting().create() }
@@ -227,7 +228,7 @@ fun SettingsAppScreen(activity: SettingsActivity, navController: NavController) 
                 showSwitch = false,
                 default = false,
                 sideEffect = {
-                    activity.fileManager.createNewFile("application/json", "xed-settings.json") { fileObject ->
+                    fileManager.createNewFile("application/json", "xed-settings.json") { fileObject ->
                         if (fileObject == null) return@createNewFile
                         scope.launch(Dispatchers.IO) {
                             try {
@@ -250,7 +251,7 @@ fun SettingsAppScreen(activity: SettingsActivity, navController: NavController) 
                 showSwitch = false,
                 default = false,
                 sideEffect = {
-                    activity.fileManager.requestOpenFile("application/json") { uri ->
+                    fileManager.requestOpenFile("application/json") { uri ->
                         if (uri == null) return@requestOpenFile
                         scope.launch(Dispatchers.IO) {
                             try {

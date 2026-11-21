@@ -9,8 +9,7 @@ import com.goydevv.arseide.file.FileObject
 import com.goydevv.arseide.file.FileWrapper
 import com.goydevv.arseide.file.child
 import com.goydevv.arseide.file.localBinDir
-import com.goydevv.arseide.horizon.HorizonModPackager
-import com.goydevv.arseide.horizon.HorizonModPorter
+import com.goydevv.arseide.projects.AndroidSigningConfig
 import com.goydevv.arseide.projects.DetectedProjectType
 import com.goydevv.arseide.projects.GradleConfig
 import com.goydevv.arseide.projects.ProjectTypeDetector
@@ -21,21 +20,8 @@ import com.goydevv.arseide.terminal.setupTerminalFiles
 import com.goydevv.arseide.utils.dialogRes
 import java.io.File
 import kotlin.coroutines.resume
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
 
-/**
- * Project-aware "Run / Build" orchestrator.
- *
- * - **Horizon Native Mod (`.hnmod`)**: Runs `cargo check` / `rustc` on the companion crate in the
- *   background sandbox via `project_runner.sh`, validates the bundle against `Bundle::read` rules,
- *   and packages `<id>.hnmod` without blocking the UI.
- * - **Fabric / Forge / Gradle**: Runs `./gradlew build --build-cache`.
- * - **Android**: Runs `./gradlew assembleDebug --build-cache` and prompts to install the APK.
- * - **Python / Node / Rust / Go**: Runs the project from its root directory in the sandbox.
- * - **Static Web**: Launches the in-app HTML preview.
- */
 object ProjectRunner {
 
     private const val CACHE_TTL_MS = 4_000L
@@ -111,47 +97,18 @@ object ProjectRunner {
             return
         }
 
-        // For .hnmod projects, ensure validate_and_pack_hnmod.py is present in tools/
-        if (type == DetectedProjectType.HORIZON_MIXIN_MOD) {
-            withContext(Dispatchers.IO) {
-                HorizonModPorter.copyBundledTools(File(rootFile, "tools"))
-                // Also run an immediate pre-package pass so <id>.hnmod is always up-to-date
-                HorizonModPackager.packageProject(rootFile)
-            }
-            if (!isTerminalInstalled()) {
-                val label = "Build .hnmod · ${rootFile.name}"
-                if (!RunOutputState.begin(label = label)) return
-                val pkgRes = HorizonModPackager.packageProject(rootFile)
-                val transcript = buildString {
-                    appendLine("==> Horizon .hnmod Validator & Packager")
-                    appendLine("Project  : ${rootFile.absolutePath}")
-                    appendLine("Mod ID   : ${pkgRes.report.modId} (v${pkgRes.report.version}, game ${pkgRes.report.game})")
-                    appendLine("Revisions: horizon=${pkgRes.report.horizonRev.take(10)}… mixins=${pkgRes.report.mixinsRev.take(10)}…")
-                    appendLine("Hooks API: ${pkgRes.report.hooksApi ?: 1}")
-                    if (pkgRes.report.warnings.isNotEmpty()) {
-                        appendLine()
-                        pkgRes.report.warnings.forEach { appendLine("WARN: $it") }
-                    }
-                    appendLine()
-                    appendLine(pkgRes.message)
-                }
-                RunOutputState.onOutput(transcript)
-                RunOutputState.onFinished(if (pkgRes.success) 0 else 1)
-                return
-            }
-        }
-
         setupAssetFile("project_runner")
         setupTerminalFiles()
         val sandboxRoot = toSandboxPath(rootPath)
         val sandboxFile = toSandboxPath(file.getAbsolutePath())
+        val buildType = GradleConfig.buildType(rootFile)
         val label =
-            if (type == DetectedProjectType.HORIZON_MIXIN_MOD) "Build .hnmod · ${rootFile.name}"
+            if (type == DetectedProjectType.ANDROID) "Build ${buildType.label} · ${rootFile.name}"
             else "Run · ${rootFile.name}"
         val scriptPath = localBinDir().child("project_runner").absolutePath
 
         val gradleArgs = if (isGradleType(type)) GradleConfig.gradleArgs(rootFile) else ""
-        val buildType = GradleConfig.buildType(rootFile).id
+        val signing = if (type == DetectedProjectType.ANDROID) AndroidSigningConfig.resolveForRunner(rootFile) else null
 
         if (type == DetectedProjectType.ANDROID && !isSynced(rootPath)) {
             if (!RunOutputState.begin(label = label)) return
@@ -162,13 +119,30 @@ object ProjectRunner {
 
         if (isGradleType(type) && !awaitFirstBuildAck(rootFile)) return
 
+        val scriptArgs =
+            arrayListOf(
+                "/bin/bash",
+                "-l",
+                scriptPath,
+                type.name,
+                sandboxRoot,
+                sandboxFile,
+                gradleArgs,
+                buildType.id,
+                signing?.mode?.id ?: "unsigned",
+                signing?.keystorePath ?: "",
+                signing?.keyAlias ?: "",
+                signing?.storePassword ?: "",
+                signing?.keyPassword ?: "",
+            )
+
         if (isTerminalInstalled()) {
             if (!RunOutputState.begin(label = label)) return
             RunService.start(
                 context = activity,
                 label = label,
                 workingDir = sandboxRoot,
-                args = arrayListOf("/bin/bash", "-l", scriptPath, type.name, sandboxRoot, sandboxFile, gradleArgs, buildType),
+                args = scriptArgs,
                 androidApkProjectDir = if (type == DetectedProjectType.ANDROID) rootPath else null,
                 syncProjectDir = if (type == DetectedProjectType.ANDROID) rootPath else null,
             )
@@ -179,7 +153,7 @@ object ProjectRunner {
                     TerminalCommand(
                         sandbox = true,
                         exe = "/bin/bash",
-                        args = arrayOf(scriptPath, type.name, sandboxRoot, sandboxFile, gradleArgs, buildType),
+                        args = scriptArgs.drop(2).toTypedArray(),
                         id = label,
                         terminatePreviousSession = true,
                         workingDir = sandboxRoot,
@@ -197,7 +171,7 @@ object ProjectRunner {
 
         if (!isTerminalInstalled()) {
             if (!RunOutputState.begin(label = label)) return
-            RunOutputState.onOutput("⚠ Linux sandbox is not installed yet. Open Terminal once to set it up.")
+            RunOutputState.onOutput("Linux sandbox is not installed yet. Open Terminal once to set it up.")
             RunOutputState.onFinished(1)
             return
         }
@@ -226,9 +200,9 @@ object ProjectRunner {
 
     private fun syncRequiredMessage(name: String): String =
         buildString {
-            appendLine("⚠ Gradle sync required for \"$name\"")
+            appendLine("Gradle sync required for \"$name\"")
             appendLine()
-            appendLine("Tap the Sync button in the top bar once before building.")
+            appendLine("Tap the Sync button in the top bar or Build tab once before building.")
         }
 
     fun toSandboxPath(path: String): String =

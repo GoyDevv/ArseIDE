@@ -35,7 +35,7 @@ import com.goydevv.arseide.activities.main.MainActivity
 import com.goydevv.arseide.commands.ActionContext
 import com.goydevv.arseide.commands.CommandProvider
 import com.goydevv.arseide.commands.ToggleableCommand
-import com.goydevv.arseide.components.GlassSurface
+import com.goydevv.arseide.components.ExpressiveSurface
 import com.goydevv.arseide.icons.Icon
 import com.goydevv.arseide.icons.XedIcon
 import com.goydevv.arseide.settings.Settings
@@ -91,10 +91,11 @@ fun ExtraKeys(editorTab: EditorTab) {
 
     val extraKeys = commandExtraKeys + symbolExtraKeys
 
-    GlassSurface(
+    ExpressiveSurface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
-        shape = RoundedCornerShape(16.dp),
-        shadowElevation = 4.dp,
+        shape = RoundedCornerShape(18.dp),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 2.dp,
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
     ) {
         Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {

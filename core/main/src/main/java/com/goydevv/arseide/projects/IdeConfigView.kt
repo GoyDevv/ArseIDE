@@ -225,7 +225,7 @@ fun IdeConfigView(projectRoot: File, onDismiss: () -> Unit) {
                             ConfigSection(
                                 icon = drawables.python,
                                 title = "Python",
-                                subtitle = "Used for Horizon .hmod porting & packaging scripts and Python projects.",
+                                subtitle = "Used for Python projects and automation scripts in the sandbox.",
                                 versions = pythons,
                                 actionLabel = null,
                                 enabled = !busy,

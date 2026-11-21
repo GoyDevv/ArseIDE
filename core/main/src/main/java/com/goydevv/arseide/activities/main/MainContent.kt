@@ -91,13 +91,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.goydevv.arseide.DefaultScope
+import androidx.navigation.compose.rememberNavController
 import com.goydevv.arseide.activities.settings.SettingsActivity
+import com.goydevv.arseide.activities.settings.SettingsNavHost
+import com.goydevv.arseide.projects.AndroidBuildTab
+import com.goydevv.arseide.projects.DetectedProjectType
 import com.goydevv.arseide.commands.CommandPalette
 import com.goydevv.arseide.commands.CommandProvider
-import com.goydevv.arseide.components.GlassBottomNavigationBar
-import com.goydevv.arseide.components.GlassNavDestination
+import com.goydevv.arseide.components.ExpressiveBottomNavigationBar
+import com.goydevv.arseide.components.ExpressiveNavDestination
 import com.goydevv.arseide.components.addDialog
-import com.goydevv.arseide.components.backdropBlur
 import com.goydevv.arseide.components.compose.utils.addIf
 import com.goydevv.arseide.components.isPermanentDrawer
 import com.goydevv.arseide.drawer.DrawerViewModel
@@ -120,9 +123,6 @@ import com.goydevv.arseide.filetree.FileTreeTab
 import com.goydevv.arseide.filetree.FileTreeViewModel
 import com.goydevv.arseide.filetree.MultiFileAction
 import com.goydevv.arseide.filetree.MultiFileActionContext
-import com.goydevv.arseide.horizon.HnmodConverterSheet
-import com.goydevv.arseide.horizon.HorizonModPackager
-import com.goydevv.arseide.horizon.HorizonModValidator
 import com.goydevv.arseide.icons.XedIcon
 import com.goydevv.arseide.projects.ProjectTemplate
 import com.goydevv.arseide.projects.ProjectsFragment
@@ -158,18 +158,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.eclipse.jgit.api.Git
 
-/**
- * Primary bottom navigation tabs in Arse IDE:
- * 1. `EDITOR` — Code editor & file tabs
- * 2. `PROJECTS` — Workspace projects, FAB actions & `.jar`/Java mod -> `.hnmod` converter
- * 3. `GIT` — Git branches, staging, diff, pull/push
- * 4. `SETTINGS` — Editor appearance, compiler & `.hnmod` toolchain pins, built-in tools & UI preferences
- */
 enum class WorkspaceTab(val index: Int, val label: String, val iconRes: Int) {
     EDITOR(0, "Editor", drawables.edit_note),
-    PROJECTS(1, "Projects", drawables.folder_code),
-    GIT(2, "Git", drawables.git),
-    SETTINGS(3, "Settings", drawables.settings),
+    BUILD(1, "Build", drawables.apk_document),
+    PROJECTS(2, "Projects", drawables.folder_code),
+    GIT(3, "Git", drawables.git),
+    SETTINGS(4, "Settings", drawables.settings),
 }
 
 var activeWorkspaceTab by mutableStateOf(WorkspaceTab.EDITOR)
@@ -240,20 +234,18 @@ fun MainContent(
     }
 
     val imeVisible = WindowInsets.isImeVisible
-    val shouldBlurWorkspace =
-        RunOutputState.expanded ||
-            mainViewModel.showCommandPalette ||
-            mainViewModel.isDraggingPalette ||
-            (drawerState.isOpen && !isPermanentDrawer)
-    val blurRadius by
-        animateDpAsState(
-            targetValue = if (shouldBlurWorkspace) 12.dp else 0.dp,
-            animationSpec = tween(durationMillis = 200),
-            label = "workspaceBackdropBlur",
-        )
+    val settingsNavController = rememberNavController()
 
     val currentProjectObj = (drawerViewModel.currentDrawerTab as? FileTreeTab)?.root
     val currentProjectPath = currentProjectObj?.getAbsolutePath()
+    val isAndroidProject =
+        currentProjectObj is FileWrapper &&
+            ProjectRunner.detect(currentProjectObj.getAbsolutePath()) == DetectedProjectType.ANDROID
+    LaunchedEffect(isAndroidProject) {
+        if (!isAndroidProject && activeWorkspaceTab == WorkspaceTab.BUILD) {
+            activeWorkspaceTab = WorkspaceTab.EDITOR
+        }
+    }
     val gitChangesCount =
         currentProjectPath?.let { gitViewModel.get()?.changes?.get(it)?.size } ?: 0
     val gitTab = drawerViewModel.serviceTabs.firstOrNull()
@@ -269,7 +261,6 @@ fun MainContent(
             modifier =
                 Modifier.fillMaxSize()
                     .padding(bottom = if (imeVisible) 0.dp else 74.dp)
-                    .backdropBlur(blurRadius)
         ) {
             AnimatedContent(
                 targetState = activeWorkspaceTab,
@@ -346,29 +337,41 @@ fun MainContent(
                         )
                     }
 
+                    WorkspaceTab.BUILD -> {
+                        if (currentProjectObj is FileWrapper) {
+                            val rootFile = File(currentProjectObj.getAbsolutePath())
+                            AndroidBuildTab(
+                                projectRoot = rootFile,
+                                onBuildApk = {
+                                    if (mainActivity != null) {
+                                        DefaultScope.launch {
+                                            ProjectRunner.run(mainActivity, currentProjectObj, currentProjectObj)
+                                        }
+                                    }
+                                },
+                                onSyncGradle = {
+                                    if (mainActivity != null) {
+                                        DefaultScope.launch {
+                                            ProjectRunner.sync(mainActivity, currentProjectObj, currentProjectObj)
+                                        }
+                                    }
+                                },
+                                onOpenIdeConfig = {
+                                    com.goydevv.arseide.projects.IdeConfigState.open(rootFile)
+                                },
+                            )
+                        }
+                    }
+
                     WorkspaceTab.SETTINGS -> {
-                        SettingsFragmentView(
-                            currentProjectPath = currentProjectPath,
-                            onOpenCommandPalette = { mainViewModel.showCommandPalette() },
-                            onOpenIdeConfig = { dir -> com.goydevv.arseide.projects.IdeConfigState.open(dir) },
-                            onOpenDependencies = { dir -> com.goydevv.arseide.projects.DependencyManagerState.open(dir) },
-                            onOpenProjectDir = { dir ->
-                                scope.launch {
-                                    drawerViewModel.addFileTreeTab(FileWrapper(dir), save = true)
-                                    activeWorkspaceTab = WorkspaceTab.EDITOR
-                                    drawerState.open()
-                                }
-                            },
-                            onBuildProjectDir = { dir ->
-                                if (mainActivity != null) {
-                                    val fw = FileWrapper(dir)
-                                    DefaultScope.launch { ProjectRunner.run(mainActivity, fw, fw) }
-                                }
-                            },
-                            onOpenAppSettings = {
-                                context.startActivity(Intent(context, SettingsActivity::class.java))
-                            },
-                        )
+                        if (mainActivity != null) {
+                            SettingsNavHost(
+                                navController = settingsNavController,
+                                activity = mainActivity,
+                                fileManager = mainActivity.fileManager,
+                                showRootBackArrow = false,
+                            )
+                        }
                     }
                 }
             }
@@ -386,9 +389,13 @@ fun MainContent(
             exit = slideOutVertically { it } + fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
+            val visibleTabsList =
+                WorkspaceTab.entries.filter { tab ->
+                    tab != WorkspaceTab.BUILD || isAndroidProject
+                }
             val workspaceNavItems =
-                WorkspaceTab.entries.map { tab ->
-                    GlassNavDestination(
+                visibleTabsList.map { tab ->
+                    ExpressiveNavDestination(
                         id = tab.name.lowercase(),
                         label = tab.label,
                         iconRes = tab.iconRes,
@@ -403,7 +410,7 @@ fun MainContent(
                     )
                 }
 
-            GlassBottomNavigationBar(items = workspaceNavItems)
+            ExpressiveBottomNavigationBar(items = workspaceNavItems)
         }
     }
 }
@@ -673,553 +680,6 @@ private fun GitFragmentView(
                 }
             }
         }
-    }
-}
-
-/**
- * Full-screen Material You **Settings** Fragment (`WorkspaceTab.SETTINGS`) with smooth
- * expandable sections (`animateContentSize`):
- * 1. Editor & Code Appearance (font size, line numbers, word wrap, tab size, extra keys)
- * 2. Compiler & Sandbox Toolchain (Gradle/Cargo cache toggles, Horizon `.hnmod` revision & hook API pins)
- * 3. Built-in Tools & Utilities (`.jar` / Mod -> `.hnmod` converter, bundle validator, cache cleaner, terminal launcher)
- * 4. UI & Animation Preferences (Material You dynamic color, AMOLED theme, smooth tabs, cursor animations)
- */
-@Composable
-private fun SettingsFragmentView(
-    currentProjectPath: String?,
-    onOpenCommandPalette: () -> Unit,
-    onOpenIdeConfig: (File) -> Unit,
-    onOpenDependencies: (File) -> Unit,
-    onOpenProjectDir: (File) -> Unit,
-    onBuildProjectDir: (File) -> Unit,
-    onOpenAppSettings: () -> Unit,
-) {
-    val context = LocalContext.current
-    val mainActivity = context as? MainActivity
-    val scope = rememberCoroutineScope()
-    val targetDir = remember(currentProjectPath) { currentProjectPath?.let { File(it) } ?: sandboxHomeDir() }
-
-    var expandEditor by rememberSaveable { mutableStateOf(true) }
-    var expandCompiler by rememberSaveable { mutableStateOf(true) }
-    var expandTools by rememberSaveable { mutableStateOf(true) }
-    var expandUi by rememberSaveable { mutableStateOf(false) }
-
-    var showConverterSheet by remember { mutableStateOf(false) }
-    var toolStatusMessage by remember { mutableStateOf<String?>(null) }
-
-    // Live reactive Settings states
-    var fontSize by remember { mutableIntStateOf(Settings.editor_text_size) }
-    var tabSize by remember { mutableIntStateOf(Settings.tab_size) }
-    var showLineNumbers by remember { mutableStateOf(Settings.show_line_numbers) }
-    var pinLineNumbers by remember { mutableStateOf(Settings.pin_line_number) }
-    var wordWrap by remember { mutableStateOf(Settings.word_wrap) }
-    var showExtraKeys by remember { mutableStateOf(Settings.show_extra_keys) }
-    var autoSave by remember { mutableStateOf(Settings.auto_save) }
-
-    var gradleCache by remember { mutableStateOf(Settings.gradle_build_cache) }
-    var cargoCache by remember { mutableStateOf(Settings.cargo_build_cache) }
-    var horizonRev by remember { mutableStateOf(Settings.horizon_revision) }
-    var mixinsRev by remember { mutableStateOf(Settings.mixins_revision) }
-    var hooksApiStr by remember { mutableStateOf(Settings.horizon_hooks_api.toString()) }
-
-    var monetEnabled by remember { mutableStateOf(Settings.monet) }
-    var amoledEnabled by remember { mutableStateOf(Settings.amoled) }
-    var smoothTabs by remember { mutableStateOf(Settings.smooth_tabs) }
-    var cursorAnim by remember { mutableStateOf(Settings.cursor_animation) }
-    var showTabIcons by remember { mutableStateOf(Settings.show_tab_icons) }
-
-    Column(
-        modifier =
-            Modifier.fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 14.dp)
-                .animateContentSize(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        // Header row
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Settings",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = "Editor, compiler toolchains, .hnmod pins & built-in tools",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            OutlinedButton(
-                onClick = onOpenAppSettings,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-            ) {
-                Text("All Settings")
-            }
-        }
-
-        // 1. Editor & Code Appearance
-        ExpandableSettingsCard(
-            icon = drawables.edit_note,
-            title = "Editor & Code Appearance",
-            subtitle = "${fontSize}sp · Tab $tabSize · ${if (wordWrap) "Wrap on" else "Wrap off"}",
-            expanded = expandEditor,
-            onToggle = { expandEditor = !expandEditor },
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Font size", style = MaterialTheme.typography.bodyMedium)
-                    Text("${fontSize}sp", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                }
-                Slider(
-                    value = fontSize.toFloat(),
-                    onValueChange = {
-                        val v = it.toInt().coerceIn(10, 28)
-                        fontSize = v
-                        Settings.editor_text_size = v
-                    },
-                    valueRange = 10f..28f,
-                    steps = 17,
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Tab size", style = MaterialTheme.typography.bodyMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(2, 4, 8).forEach { sz ->
-                            FilterChip(
-                                selected = tabSize == sz,
-                                onClick = {
-                                    tabSize = sz
-                                    Settings.tab_size = sz
-                                },
-                                label = { Text("$sz spaces") },
-                            )
-                        }
-                    }
-                }
-
-                SettingsToggleRow("Line numbers", showLineNumbers) {
-                    showLineNumbers = it
-                    Settings.show_line_numbers = it
-                }
-                SettingsToggleRow("Pin line numbers", pinLineNumbers) {
-                    pinLineNumbers = it
-                    Settings.pin_line_number = it
-                }
-                SettingsToggleRow("Word wrap", wordWrap) {
-                    wordWrap = it
-                    Settings.word_wrap = it
-                }
-                SettingsToggleRow("Extra symbol keys bar", showExtraKeys) {
-                    showExtraKeys = it
-                    Settings.show_extra_keys = it
-                }
-                SettingsToggleRow("Auto-save files", autoSave) {
-                    autoSave = it
-                    Settings.auto_save = it
-                }
-            }
-        }
-
-        // 2. Compiler & Sandbox Toolchain Settings
-        ExpandableSettingsCard(
-            icon = drawables.build,
-            title = "Compiler & .hnmod Toolchain",
-            subtitle = "Gradle/Cargo cache & Horizon .hnmod revision pins",
-            expanded = expandCompiler,
-            onToggle = { expandCompiler = !expandCompiler },
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SettingsToggleRow("Gradle build cache (--build-cache)", gradleCache) {
-                    gradleCache = it
-                    Settings.gradle_build_cache = it
-                }
-                SettingsToggleRow("Cargo incremental build cache", cargoCache) {
-                    cargoCache = it
-                    Settings.cargo_build_cache = it
-                }
-
-                OutlinedTextField(
-                    value = horizonRev,
-                    onValueChange = {
-                        horizonRev = it.trim().lowercase()
-                        if (HorizonModValidator.isValidRevision(horizonRev)) {
-                            Settings.horizon_revision = horizonRev
-                        }
-                    },
-                    singleLine = true,
-                    label = { Text("Horizon revision (40-char hex SHA)") },
-                    isError = !HorizonModValidator.isValidRevision(horizonRev),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                OutlinedTextField(
-                    value = mixinsRev,
-                    onValueChange = {
-                        mixinsRev = it.trim().lowercase()
-                        if (HorizonModValidator.isValidRevision(mixinsRev)) {
-                            Settings.mixins_revision = mixinsRev
-                        }
-                    },
-                    singleLine = true,
-                    label = { Text("Mixins revision (40-char hex SHA)") },
-                    isError = !HorizonModValidator.isValidRevision(mixinsRev),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                OutlinedTextField(
-                    value = hooksApiStr,
-                    onValueChange = {
-                        hooksApiStr = it.filter { ch -> ch.isDigit() }
-                        hooksApiStr.toIntOrNull()?.takeIf { n -> n >= 1 }?.let { n ->
-                            Settings.horizon_hooks_api = n
-                        }
-                    },
-                    singleLine = true,
-                    label = { Text("Default native hooks API level") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    FilledTonalButton(
-                        onClick = { onOpenIdeConfig(targetDir) },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("JDK / NDK / Gradle")
-                    }
-                    OutlinedButton(
-                        onClick = { onOpenDependencies(targetDir) },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("Dependencies")
-                    }
-                }
-            }
-        }
-
-        // 3. Built-in Tools & Utilities
-        ExpandableSettingsCard(
-            icon = drawables.extension,
-            title = "Tools & Utilities",
-            subtitle = ".jar -> .hnmod converter, validator, cache cleaner & terminal",
-            expanded = expandTools,
-            onToggle = { expandTools = !expandTools },
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = { showConverterSheet = true },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(painterResource(drawables.extension), contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Convert Java .jar / Mod to Horizon .hnmod")
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    FilledTonalButton(
-                        onClick = {
-                            scope.launch {
-                                val pkgRes = HorizonModPackager.packageProject(targetDir)
-                                toolStatusMessage = pkgRes.message
-                                toast(pkgRes.message)
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("Validate .hnmod")
-                    }
-                    FilledTonalButton(
-                        onClick = {
-                            scope.launch(Dispatchers.IO) {
-                                var freedBytes = 0L
-                                sandboxHomeDir().listFiles()?.filter { it.isDirectory }?.forEach { proj ->
-                                    listOf("build", "app/build", "target").forEach { rel ->
-                                        val bDir = File(proj, rel)
-                                        if (bDir.isDirectory) {
-                                            bDir.walkTopDown().filter { it.isFile }.forEach { freedBytes += it.length() }
-                                            bDir.deleteRecursively()
-                                        }
-                                    }
-                                }
-                                val mib = String.format("%.1f MiB", freedBytes / 1048576.0)
-                                withContext(Dispatchers.Main) {
-                                    toolStatusMessage = "Cleaned build/ and target/ caches ($mib freed)."
-                                    toast(toolStatusMessage!!)
-                                }
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("Clean Caches")
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            if (mainActivity != null) {
-                                launchTerminal(
-                                    activity = mainActivity,
-                                    terminalCommand =
-                                        TerminalCommand(
-                                            sandbox = true,
-                                            exe = "/bin/bash",
-                                            args = arrayOf("-l"),
-                                            id = "sandbox_shell",
-                                            terminatePreviousSession = false,
-                                            workingDir = ProjectRunner.toSandboxPath(targetDir.absolutePath),
-                                        ),
-                                )
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(painterResource(drawables.terminal), contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Terminal")
-                    }
-                    OutlinedButton(
-                        onClick = onOpenCommandPalette,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(painterResource(drawables.command_palette), contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Palette")
-                    }
-                }
-
-                FilledTonalButton(
-                    onClick = { showAutoSetupDialogGlobal = true },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(painterResource(drawables.terminal), contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Run / Repair Linux Sandbox Auto-Setup")
-                }
-
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            PhantomKillerBypass.applySystemPhantomBypass(context)
-                            toolStatusMessage = "Phantom Process Killer protection active."
-                            toast(toolStatusMessage!!)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(painterResource(drawables.bolt), contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Apply Android Phantom Killer Bypass")
-                }
-
-                toolStatusMessage?.let { msg ->
-                    Text(
-                        text = msg,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-        }
-
-        // 4. UI & Animation Preferences
-        ExpandableSettingsCard(
-            icon = drawables.palette,
-            title = "UI & Animations",
-            subtitle = "Material You colors, AMOLED mode & transitions",
-            expanded = expandUi,
-            onToggle = { expandUi = !expandUi },
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SettingsToggleRow("Dynamic Material You colors", monetEnabled) {
-                    monetEnabled = it
-                    Settings.monet = it
-                    dynamicTheme.value = it
-                    ThemeManager.invalidateCache()
-                    updateThemes()
-                    refreshEditors()
-                }
-                SettingsToggleRow("AMOLED pure black dark mode", amoledEnabled) {
-                    amoledEnabled = it
-                    Settings.amoled = it
-                    amoled.value = it
-                    ThemeManager.invalidateCache()
-                    updateThemes()
-                    refreshEditors()
-                }
-                if (!monetEnabled) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("Color preset", style = MaterialTheme.typography.bodyMedium)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            builtInThemes.forEach { preset ->
-                                val shortLabel = preset.name.substringBefore(" ").trim()
-                                FilterChip(
-                                    selected = (currentTheme.value?.id ?: Settings.theme) == preset.id,
-                                    onClick = {
-                                        currentTheme.value = preset
-                                        Settings.theme = preset.id
-                                        ThemeManager.invalidateCache()
-                                        refreshEditors()
-                                    },
-                                    label = { Text(shortLabel) },
-                                )
-                            }
-                        }
-                    }
-                }
-                SettingsToggleRow("Smooth tab slide animations", smoothTabs) {
-                    smoothTabs = it
-                    Settings.smooth_tabs = it
-                }
-                SettingsToggleRow("Smooth cursor animation", cursorAnim) {
-                    cursorAnim = it
-                    Settings.cursor_animation = it
-                }
-                SettingsToggleRow("Show file icons on editor tabs", showTabIcons) {
-                    showTabIcons = it
-                    Settings.show_tab_icons = it
-                }
-            }
-        }
-    }
-
-    if (showConverterSheet) {
-        HnmodConverterSheet(
-            initialProjectDir = currentProjectPath?.let { File(it) },
-            onDismiss = { showConverterSheet = false },
-            onOpenConvertedProject = { dir ->
-                showConverterSheet = false
-                onOpenProjectDir(dir)
-            },
-            onBuildConvertedProject = { dir ->
-                showConverterSheet = false
-                onBuildProjectDir(dir)
-            },
-        )
-    }
-}
-
-@Composable
-private fun ExpandableSettingsCard(
-    icon: Int,
-    title: String,
-    subtitle: String,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    val chevronRotation by
-        animateFloatAsState(
-            targetValue = if (expanded) 180f else 0f,
-            animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow),
-            label = "chevronRotation",
-        )
-
-    OutlinedCard(
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.fillMaxWidth().animateContentSize(),
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier =
-                    Modifier.fillMaxWidth()
-                        .clickable(onClick = onToggle)
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.size(38.dp),
-                ) {
-                    Icon(
-                        painter = painterResource(icon),
-                        contentDescription = null,
-                        modifier = Modifier.padding(9.dp),
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Icon(
-                    painter = painterResource(drawables.chevron_down),
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = chevronRotation },
-                )
-            }
-
-            AnimatedVisibility(
-                visible = expanded,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut(),
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                    content = content,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingsToggleRow(
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier =
-            Modifier.fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .clickable { onCheckedChange(!checked) }
-                .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f),
-        )
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
@@ -1706,10 +1166,7 @@ private fun EmptyEditorState(
 }
 
 private fun detectMajorityLanguage(root: File): String? {
-    if (File(root, "horizon-native.json").isFile || File(root, "horizon-mixin.toml").isFile) {
-        return "Horizon Native Mod (.hnmod)"
-    }
-    val skip =
+val skip =
         setOf(
             ".git",
             "node_modules",

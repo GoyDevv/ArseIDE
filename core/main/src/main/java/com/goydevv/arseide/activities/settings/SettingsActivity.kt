@@ -40,7 +40,7 @@ class SettingsActivity : AppCompatActivity() {
                 Surface {
                     val navController = rememberNavController()
                     settingsNavController = WeakReference(navController)
-                    SettingsNavHost(activity = this@SettingsActivity, navController = navController)
+                    SettingsNavHost(navController = navController, activity = this@SettingsActivity, fileManager = fileManager)
 
                     val snackbarHostState = remember { SnackbarHostState() }
                     LaunchedEffect(snackbarHostState) { snackbarHostStateRef = WeakReference(snackbarHostState) }

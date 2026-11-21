@@ -104,7 +104,7 @@ private fun validateValue(value: String): String? =
  * Pure Material You **File Tree Drawer** (opened from the top-left file logo button).
  *
  * Dedicated strictly to the active project's File Tree — no duplicate bottom navigation bar inside
- * the drawer. Project management, Horizon Mod Studio, Git, and Settings live in the main bottom
+ * the drawer. Project management, Android Build & Signing, Git, and Settings live in the main bottom
  * navigation fragments.
  */
 @Composable
@@ -697,7 +697,7 @@ private fun DrawerEmptyProjectState(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Open a project from the Projects tab or create a new Android, Fabric, or Horizon (.hnmod) project.",
+                    text = "Open a project from the Projects tab or create a new Android, Gradle, Python, or Node.js project.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,

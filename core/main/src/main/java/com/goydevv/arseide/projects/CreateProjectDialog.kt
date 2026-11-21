@@ -56,7 +56,7 @@ import java.io.File
  * Create Project bottom sheet.
  *
  * Primary templates (Minecraft Java Mod, Android Compose, Python, Node.js, Web, Empty) appear first,
- * and Horizon `.hnmod` templates appear at the very back of the template list.
+ * 
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -206,7 +206,7 @@ fun CreateProjectDialog(
                 }
             }
 
-            // Template chooser (Horizon .hnmod templates are at the very end)
+            
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 FormSectionHeader(icon = drawables.widgets, title = stringResource(strings.project_template))
                 Row(
@@ -237,39 +237,6 @@ fun CreateProjectDialog(
                     supportingText = nameError?.let { { Text(it, color = MaterialTheme.colorScheme.error) } },
                     modifier = Modifier.fillMaxWidth(),
                 )
-            }
-
-            // Horizon .hnmod options
-            if (template.isHorizonTemplate) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    FormSectionHeader(icon = drawables.extension, title = "Horizon .hnmod")
-                    OutlinedTextField(
-                        value = modId,
-                        onValueChange = { modId = it },
-                        singleLine = true,
-                        label = { Text("Mod ID") },
-                        placeholder = {
-                            Text(
-                                ProjectConfig(name = trimmedName, template = template, parentDir = parentDir)
-                                    .resolvedModId()
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = modDescription,
-                        onValueChange = { modDescription = it },
-                        label = { Text(stringResource(strings.mod_description)) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = modVersion,
-                        onValueChange = { modVersion = it },
-                        singleLine = true,
-                        label = { Text(stringResource(strings.mod_version)) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
             }
 
             // Minecraft Java Mod options

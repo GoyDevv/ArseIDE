@@ -10,7 +10,6 @@ import androidx.core.content.edit
 import com.goydevv.arseide.BuildConfig
 import com.goydevv.arseide.commands.ToolbarConfiguration
 import com.goydevv.arseide.filetree.SortMode
-import com.goydevv.arseide.horizon.HorizonModValidator
 import com.goydevv.arseide.settings.editor.DEFAULT_EXCLUDED_FILES_DRAWER
 import com.goydevv.arseide.settings.editor.DEFAULT_EXCLUDED_FILES_SEARCH
 import com.goydevv.arseide.settings.editor.DEFAULT_EXTRA_KEYS_COMMANDS
@@ -110,14 +109,8 @@ object Settings {
     var auto_closing_bracket by CachedPreference("auto_closing_bracket", true)
     var confirm_exit by CachedPreference("confirm_exit", true)
     var terminal_clipboard_keybindings by CachedPreference("terminal_clipboard_keybindings", true)
-
-    // Compiler & Horizon .hnmod settings
     var gradle_build_cache by CachedPreference("gradle_build_cache", true)
     var cargo_build_cache by CachedPreference("cargo_build_cache", true)
-    var horizon_revision by CachedPreference("horizon_revision", HorizonModValidator.DEFAULT_HORIZON_REV)
-    var mixins_revision by CachedPreference("mixins_revision", HorizonModValidator.DEFAULT_MIXINS_REV)
-    var horizon_hooks_api by CachedPreference("horizon_hooks_api", 35)
-
     // Int settings
     var tab_size by CachedPreference("tab_size", 4)
     var editor_text_size by CachedPreference("text_size", 14)

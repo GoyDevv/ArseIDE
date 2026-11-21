@@ -83,8 +83,8 @@ import com.goydevv.arseide.activities.main.MainActivity
 import com.goydevv.arseide.activities.main.fileTreeViewModel
 import com.goydevv.arseide.activities.settings.SettingsActivity
 import com.goydevv.arseide.activities.settings.SettingsRoutes
-import com.goydevv.arseide.components.GlassSegmentedControl
-import com.goydevv.arseide.components.GlassSurface
+import com.goydevv.arseide.components.ExpressiveSegmentedControl
+import com.goydevv.arseide.components.ExpressiveSurface
 import com.goydevv.arseide.components.SingleInputDialog
 import com.goydevv.arseide.components.compose.utils.addIf
 import com.goydevv.arseide.drawer.DrawerTab
@@ -267,8 +267,8 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(3.dp))
             }
 
-            // --- Glassmorphic Segmented Section Tabs ---
-            GlassSegmentedControl(
+            
+            ExpressiveSegmentedControl(
                 options = listOf("Code", "Diff", "Actions"),
                 selectedIndex = section,
                 onSelect = { section = it },
@@ -516,7 +516,7 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
                 }
             }
 
-            GlassSurface(
+            ExpressiveSurface(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
                 shape = RoundedCornerShape(18.dp),
                 shadowElevation = 6.dp,
@@ -651,7 +651,7 @@ class GitTab(val viewModel: GitViewModel) : DrawerTab() {
         val (added, removed) = remember(diff) { diffStats(diff) }
         val rotation by animateFloatAsState(targetValue = if (expanded) 90f else 0f, label = "diffRotate")
 
-        GlassSurface(
+        ExpressiveSurface(
             shape = RoundedCornerShape(14.dp),
             shadowElevation = 2.dp,
             modifier = Modifier.fillMaxWidth(),

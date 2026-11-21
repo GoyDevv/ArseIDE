@@ -2,15 +2,15 @@ package com.goydevv.arseide.theme
 
 import android.os.Build
 import androidx.annotation.ChecksSdkIntAtLeast
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.Surface
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.core.graphics.ColorUtils
 import com.google.gson.JsonArray
 import com.goydevv.arseide.color.toHex
@@ -25,7 +26,6 @@ import com.goydevv.arseide.settings.Settings
 import com.goydevv.arseide.settings.editor.rememberAppTypography
 import com.goydevv.arseide.settings.theme.themes
 import com.goydevv.arseide.utils.isDarkTheme
-import com.goydevv.arseide.utils.toast
 import java.util.Properties
 
 val currentTheme = mutableStateOf<ThemeHolder?>(null)
@@ -34,77 +34,15 @@ val amoled = mutableStateOf(Settings.amoled)
 
 val LocalThemeHolder = staticCompositionLocalOf<ThemeHolder> { error("No ThemeHolder state provided") }
 
-@Immutable
-data class GlassColors(
-    val surfaceTop: Color,
-    val surfaceBottom: Color,
-    val borderTop: Color,
-    val borderMid: Color,
-    val borderBottom: Color,
-    val specularHighlight: Color,
-    val activePillContainer: Color,
-    val activePillContent: Color,
-)
+val ExpressiveShapes =
+    Shapes(
+        extraSmall = RoundedCornerShape(8.dp),
+        small = RoundedCornerShape(12.dp),
+        medium = RoundedCornerShape(18.dp),
+        large = RoundedCornerShape(24.dp),
+        extraLarge = RoundedCornerShape(32.dp),
+    )
 
-val LocalGlassColors =
-    staticCompositionLocalOf {
-        GlassColors(
-            surfaceTop = Color(0xD91E2332),
-            surfaceBottom = Color(0xEB151924),
-            borderTop = Color(0x40FFFFFF),
-            borderMid = Color(0x1FFFFFFF),
-            borderBottom = Color.White.copy(alpha = 0.05f),
-            specularHighlight = Color(0xFFFFFFFF),
-            activePillContainer = Color(0xAD2B4678),
-            activePillContent = Color(0xFFD8E2FF),
-        )
-    }
-
-@Composable
-fun rememberGlassColors(scheme: ColorScheme, darkTheme: Boolean, highContrastDarkTheme: Boolean): GlassColors =
-    remember(scheme, darkTheme, highContrastDarkTheme) {
-        when {
-            darkTheme && highContrastDarkTheme ->
-                GlassColors(
-                    surfaceTop = scheme.surfaceContainerLow,
-                    surfaceBottom = Color.Black,
-                    borderTop = scheme.primary.copy(alpha = 0.34f),
-                    borderMid = scheme.outlineVariant.copy(alpha = 0.35f),
-                    borderBottom = Color.White.copy(alpha = 0.05f),
-                    specularHighlight = scheme.primary,
-                    activePillContainer = scheme.secondaryContainer,
-                    activePillContent = scheme.onSecondaryContainer,
-                )
-            darkTheme ->
-                GlassColors(
-                    surfaceTop = scheme.surfaceContainerHigh,
-                    surfaceBottom = scheme.surfaceContainer,
-                    borderTop = scheme.outlineVariant.copy(alpha = 0.45f),
-                    borderMid = scheme.primary.copy(alpha = 0.18f),
-                    borderBottom = scheme.outlineVariant.copy(alpha = 0.2f),
-                    specularHighlight = scheme.primary,
-                    activePillContainer = scheme.secondaryContainer,
-                    activePillContent = scheme.onSecondaryContainer,
-                )
-            else ->
-                GlassColors(
-                    surfaceTop = scheme.surfaceContainerLowest,
-                    surfaceBottom = scheme.surfaceContainer,
-                    borderTop = scheme.outlineVariant.copy(alpha = 0.45f),
-                    borderMid = scheme.primary.copy(alpha = 0.18f),
-                    borderBottom = scheme.outlineVariant.copy(alpha = 0.25f),
-                    specularHighlight = scheme.primary,
-                    activePillContainer = scheme.secondaryContainer,
-                    activePillContent = scheme.onSecondaryContainer,
-                )
-        }
-    }
-
-/**
- * Ensures any ColorScheme (especially dynamic Material You schemes on OEM ROMs or AMOLED overrides)
- * has a well-ordered, distinct tonal hierarchy across surface and container tokens so cards,
- * bottom sheets, editor gutters, and navigation bars never blend together or lose contrast.
- */
 private fun normalizeColorScheme(raw: ColorScheme, darkTheme: Boolean, highContrastDarkTheme: Boolean): ColorScheme {
     val primaryArgb = raw.primary.toArgb()
     fun tone(baseHex: Int, primaryRatio: Float): Color =
@@ -124,7 +62,6 @@ private fun normalizeColorScheme(raw: ColorScheme, darkTheme: Boolean, highContr
                 surfaceContainerHighest = tone(0xFF222736.toInt(), 0.12f),
             )
         darkTheme -> {
-            // Guarantee clean separation if OEM dynamicDarkColorScheme collapses surfaceContainer tokens
             val bgLum = raw.background.luminance()
             val contLum = raw.surfaceContainer.luminance()
             if (kotlin.math.abs(contLum - bgLum) < 0.008f) {
@@ -219,13 +156,13 @@ fun XedTheme(
 
     val themeHolder = resolvedPair.first
     val colorScheme = resolvedPair.second
-    val glassColors = rememberGlassColors(colorScheme, darkTheme, highContrastDarkTheme)
 
-    CompositionLocalProvider(
-        LocalThemeHolder provides themeHolder,
-        LocalGlassColors provides glassColors,
-    ) {
-        MaterialTheme(colorScheme = colorScheme, typography = rememberAppTypography(context)) {
+    CompositionLocalProvider(LocalThemeHolder provides themeHolder) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = rememberAppTypography(context),
+            shapes = ExpressiveShapes,
+        ) {
             Surface(
                 color = MaterialTheme.colorScheme.background,
                 contentColor = MaterialTheme.colorScheme.onBackground,
@@ -237,7 +174,7 @@ fun XedTheme(
 }
 
 @ChecksSdkIntAtLeast(api = Build.VERSION_CODES.S)
-fun supportsDynamicTheming() = Build.VERSION_CODES.S <= Build.VERSION.SDK_INT
+fun supportsDynamicTheming() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
 @Composable
 fun harmonize(color: Long): Int {
